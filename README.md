@@ -1,3 +1,5 @@
+<img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/9defd0ed-33ed-45ce-a807-ca5aa3fce5c6" />
+
 # MetroTracker
 
 Real-time DC Metro arrival board for Even Realities G2 smart glasses. The glasses display mirrors the departure signs found at Metro stations — line, destination, and minutes until arrival. The phone shows an interactive map with your live location and color-coded station markers.
@@ -19,8 +21,8 @@ Real-time DC Metro arrival board for Even Realities G2 smart glasses. The glasse
 ## Setup
 
 ```bash
-git clone <repo-url>
-cd evenrealities-wmata-tracker
+git clone https://github.com/ltrademark/EvenG2-Metro-Tracker
+cd EvenG2-Metro-Tracker
 yarn install
 ```
 
