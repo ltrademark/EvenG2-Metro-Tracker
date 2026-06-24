@@ -12,6 +12,7 @@ export interface AppBridgeAdapter {
   onPredictionsUpdated(trains: Train[]): void
   onGpsPositionUpdated(lat: number, lon: number): void
   onStatusChanged(text: string): void
+  onSplashTap(): void
   getIsPinned(): boolean
   getCurrentStationCode(): string | null
 }
@@ -24,10 +25,37 @@ export interface BridgeControls {
   destroy(): void
 }
 
-// Bridge methods that may not exist in all SDK versions
 type BridgeWithBackgroundState = EvenAppBridge & {
   setBackgroundState?: (key: string, getter: () => unknown) => void
   onBackgroundRestore?: (key: string, handler: (data: unknown) => void) => void
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function nearbyStations(
+  stations: Station[],
+  lat: number,
+  lon: number,
+  excludeCode: string,
+  limit = 3,
+): Station[] {
+  if (!lat && !lon) return []
+  return stations
+    .filter(s => s.code !== excludeCode && s.secondaryCode !== excludeCode)
+    .map(s => ({ s, d: haversineKm(lat, lon, s.lat, s.lon) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, limit)
+    .map(x => x.s)
 }
 
 export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeControls> {
@@ -48,22 +76,31 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
 
   let currentStation: Station | null = null
   let currentDistKm = 0
+  let userLat = 0
+  let userLon = 0
+  let nearby: Station[] = []
   let isPinned = false
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
   async function doRefresh() {
     if (!currentStation) return
-    await glassesDisplay.updateStatus('Refreshing…')
+
     const trains = await wmataClient.fetchPredictions(currentStation)
     adapter.onPredictionsUpdated(trains)
-    await glassesDisplay.render(currentStation, trains, currentDistKm, new Date())
 
-    const errors = wmataClient.getConsecutiveErrors()
+    const view = glassesDisplay.view
+    if (view === 'splash' || view === 'stations') {
+      await glassesDisplay.showStations(currentStation, nearby, currentDistKm)
+    } else {
+      await glassesDisplay.showTimetable(currentStation, trains, currentDistKm)
+    }
+
     const timeStr = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     })
     const distMi = (currentDistKm * 0.621371).toFixed(1)
+    const errors = wmataClient.getConsecutiveErrors()
     adapter.onStatusChanged(
       errors > 0 ? `${timeStr}  ⚠ API error` : `${timeStr}  • ${distMi}mi`,
     )
@@ -87,10 +124,15 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       if (isPinned) return
       currentStation = station
       currentDistKm = distKm
+      nearby = nearbyStations(stations, userLat, userLon, station.code)
       adapter.onStationChanged(station, distKm)
       void doRefresh()
     },
-    (lat, lon) => adapter.onGpsPositionUpdated(lat, lon),
+    (lat, lon) => {
+      userLat = lat
+      userLon = lon
+      adapter.onGpsPositionUpdated(lat, lon)
+    },
   )
 
   const imuController = new ImuController(
@@ -98,33 +140,59 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     () => {
       if (currentStation) void doRefresh()
     },
-    () => {}, // head-down: no-op for now
+    () => {},
   )
 
-  // Input event routing
+  // View-aware input routing
   bridge.onEvenHubEvent(event => {
     const sys = event.sysEvent as { eventType?: number } | undefined
     if (!sys) return
     const eventType = sys.eventType ?? -1
 
-    switch (eventType) {
-      case 0: // single tap → force refresh
-        void doRefresh()
+    switch (glassesDisplay.view) {
+      case 'splash':
+        if (eventType === 0) adapter.onSplashTap()
         break
-      case 3: // double tap → exit dialog
-        void bridge.shutDownPageContainer(1)
+
+      case 'stations':
+        if (eventType === 0) {
+          // Tap on station name → open timetable
+          const trains = wmataClient.getLastPredictions()
+          if (currentStation && trains.length > 0) {
+            void glassesDisplay.showTimetable(currentStation, trains, currentDistKm)
+          } else if (currentStation) {
+            void doRefresh()
+          }
+        } else if (eventType === 3) {
+          void bridge.shutDownPageContainer(1)
+        } else if (eventType === 4) {
+          startTimer()
+          void doRefresh()
+        } else if (eventType === 5) {
+          stopTimer()
+        }
         break
-      case 4: // foreground enter → resume
-        startTimer()
-        void doRefresh()
-        break
-      case 5: // foreground exit → pause
-        stopTimer()
+
+      case 'timetable':
+        if (eventType === 0) {
+          // Tap → toggle direction and refresh
+          glassesDisplay.toggleTrainGroup()
+          void glassesDisplay.refreshTimetable()
+        } else if (eventType === 3) {
+          // Double tap → back to station list
+          if (currentStation) {
+            void glassesDisplay.showStations(currentStation, nearby, currentDistKm)
+          }
+        } else if (eventType === 4) {
+          startTimer()
+          void doRefresh()
+        } else if (eventType === 5) {
+          stopTimer()
+        }
         break
     }
   })
 
-  // Background state persistence (optional SDK feature)
   try {
     bridge.setBackgroundState?.('state', () => ({
       stationCode: currentStation?.code ?? null,
@@ -150,7 +218,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   } catch {
     console.warn('IMU not available (not supported in simulator)')
   }
-  // Dev mode: auto-pin Metro Center so the simulator shows real data immediately
+
   if (import.meta.env.DEV && !currentStation) {
     const devStation = wmataClient.getStationByCode('A01')
     if (devStation) {
@@ -171,6 +239,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       isPinned = true
       currentStation = station
       currentDistKm = 0
+      nearby = []
       adapter.onStationChanged(station, 0)
       void doRefresh()
     },

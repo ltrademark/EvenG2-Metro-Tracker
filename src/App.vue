@@ -188,6 +188,9 @@ export default defineComponent({
       onStatusChanged(text) {
         self.statusText = text
       },
+      onSplashTap() {
+        void self._checkAndStartLocation()
+      },
       getIsPinned() {
         return self.isPinned
       },

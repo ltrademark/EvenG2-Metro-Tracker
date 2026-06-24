@@ -14,6 +14,7 @@ export interface Train {
   destination: string
   min: string
   car: string
+  group: string
 }
 
 interface StationRaw {
@@ -33,6 +34,7 @@ interface TrainRaw {
   DestinationName: string
   Min: string
   Car: string
+  Group: string
 }
 
 function minToNum(min: string): number {
@@ -132,16 +134,16 @@ export class WmataClient {
             destination: t.DestinationName,
             min: t.Min,
             car: t.Car,
+            group: t.Group,
           })),
         )
         .filter(t => {
-          const key = `${t.line}|${t.destination}|${t.min}`
+          const key = `${t.line}|${t.destination}|${t.min}|${t.group}`
           if (seen.has(key)) return false
           seen.add(key)
           return true
         })
         .sort((a, b) => minToNum(a.min) - minToNum(b.min))
-        .slice(0, 5)
 
       this._lastPredictions = trains
       this._lastFetchAt = now
