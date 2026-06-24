@@ -6,6 +6,18 @@
       <TrainList :trains="trains" />
       <div class="status-bar">{{ statusText }}</div>
     </aside>
+
+    <div v-if="showLocationPrompt" class="location-overlay">
+      <div class="location-card">
+        <div class="location-card-title">Location Access</div>
+        <p class="location-card-body">
+          MetroTracker needs your location to find the nearest Metro station.
+        </p>
+        <button class="location-card-btn" @click="grantLocationAccess">
+          Allow Location Access
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -50,6 +62,7 @@ export default defineComponent({
       userLon: null as number | null,
       isPinned: false,
       statusText: 'Starting…',
+      showLocationPrompt: false,
     }
   },
 
@@ -73,6 +86,32 @@ export default defineComponent({
     unpin() {
       this.isPinned = false
       _p.get(this)?.bridgeControls?.unpin()
+    },
+
+    async _checkAndStartLocation() {
+      let needsPrompt = true
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' })
+        if (perm.state === 'granted') {
+          needsPrompt = false
+        } else if (perm.state === 'denied') {
+          this.statusText = 'Location denied — tap a station on the map to pin it manually'
+          return
+        }
+      } catch {
+        // Permissions API not available in this WebView — fall through to prompt
+      }
+
+      if (needsPrompt) {
+        this.showLocationPrompt = true
+      } else {
+        _p.get(this)!.bridgeControls!.startLocation()
+      }
+    },
+
+    grantLocationAccess() {
+      this.showLocationPrompt = false
+      _p.get(this)?.bridgeControls?.startLocation()
     },
 
     pinStation(code: string) {
@@ -157,6 +196,7 @@ export default defineComponent({
       },
     })
     _p.get(this)!.bridgeControls = controls
+    await this._checkAndStartLocation()
   },
 
   beforeUnmount() {
@@ -209,5 +249,49 @@ body,
   border-top: 1px solid #1e1e3a;
   background: #0d0d1a;
   flex-shrink: 0;
+}
+.location-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.location-card {
+  background: #1a1a35;
+  border: 1px solid #2e2e5a;
+  border-radius: 12px;
+  padding: 28px 24px;
+  max-width: 300px;
+  width: 90%;
+  text-align: center;
+}
+.location-card-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #eee;
+}
+.location-card-body {
+  font-size: 13px;
+  color: #999;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.location-card-btn {
+  background: #0063A6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+}
+.location-card-btn:active {
+  background: #004f87;
 }
 </style>

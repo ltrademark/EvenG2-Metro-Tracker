@@ -20,6 +20,7 @@ export interface BridgeControls {
   pinStation(code: string): void
   unpin(): void
   forceRefresh(): Promise<void>
+  startLocation(): void
   destroy(): void
 }
 
@@ -149,8 +150,6 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   } catch {
     console.warn('IMU not available (not supported in simulator)')
   }
-  locationManager.start()
-
   // Dev mode: auto-pin Metro Center so the simulator shows real data immediately
   if (import.meta.env.DEV && !currentStation) {
     const devStation = wmataClient.getStationByCode('A01')
@@ -180,6 +179,9 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     },
     async forceRefresh() {
       await doRefresh()
+    },
+    startLocation() {
+      locationManager.start()
     },
     destroy() {
       stopTimer()
