@@ -150,7 +150,7 @@ export class GlassesDisplay {
       containerTotalNum: 4,
       imageObject: [img(1, 'logo', 218, 24, 140, 140)],
       textObject: [
-        txt(2, 'ver',   494, 8,   82, 20, 'v0.1.0'),
+        txt(2, 'ver',   494, 8,   82, 20, 'v0.2.0'),
         txt(3, 'title',   0, 174, W,  32, 'METRO TRACKER'),
         txt(4, 'cta',     0, 218, W,  36, '► Tap to Start ◄', true),
       ],
