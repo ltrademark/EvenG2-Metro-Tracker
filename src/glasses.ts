@@ -174,7 +174,7 @@ export class GlassesDisplay {
       containerTotalNum: 4,
       imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
       textObject: [
-        txt(2, 'ver',   509,   6,   57, LH, 'v0.3.0'),
+        txt(2, 'ver',   509,   6,   57, LH, 'v0.3.1'),
         txt(3, 'title', 216, 172,  145, LH, 'METRO TRACKER'),
         txt(4, 'cta',   239, 218,   99, LH, 'Tap to start', true),
       ],

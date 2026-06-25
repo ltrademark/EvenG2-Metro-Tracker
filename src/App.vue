@@ -123,9 +123,10 @@ export default defineComponent({
     _initMap() {
       const el = this.$refs.mapEl as HTMLElement
       const map = L.map(el).setView([38.9072, -77.0369], 12)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
         maxZoom: 19,
+        subdomains: 'abcd',
       }).addTo(map)
       _p.get(this)!.map = map
     },
