@@ -82,17 +82,17 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   let isPinned = false
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-  async function doRefresh() {
+  async function doRefresh(goToTimetable = false) {
     if (!currentStation) return
 
     const trains = await wmataClient.fetchPredictions(currentStation)
     adapter.onPredictionsUpdated(trains)
 
     const view = glassesDisplay.view
-    if (view === 'splash' || view === 'stations') {
-      await glassesDisplay.showStations(currentStation, nearby, currentDistKm)
-    } else {
+    if (goToTimetable || view === 'timetable') {
       await glassesDisplay.showTimetable(currentStation, trains, currentDistKm)
+    } else {
+      await glassesDisplay.showStations(currentStation, nearby, currentDistKm)
     }
 
     const timeStr = new Date().toLocaleTimeString('en-US', {
@@ -239,9 +239,9 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       isPinned = true
       currentStation = station
       currentDistKm = 0
-      nearby = []
+      nearby = nearbyStations(stations, station.lat, station.lon, station.code)
       adapter.onStationChanged(station, 0)
-      void doRefresh()
+      void doRefresh(true)
     },
     unpin() {
       isPinned = false
