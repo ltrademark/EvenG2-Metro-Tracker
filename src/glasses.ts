@@ -18,11 +18,11 @@ const LOGO_W = 144
 const LOGO_H = 144
 
 // Timetable right panel
-const PANEL_X = 198
-const PANEL_W = 374
+const PANEL_X  = 198
+const PANEL_W  = 374
 const PANEL_BW = 2
-const PANEL_IX = PANEL_X + PANEL_BW + 6        // inner content x (with 6px interior margin)
-const PANEL_IW = PANEL_W - 2 * (PANEL_BW + 6)  // inner content width
+const PANEL_IX = PANEL_X + 20   // 20px horizontal padding from outer border (design guideline)
+const PANEL_IW = PANEL_W - 40   // 20px each side → 334px
 
 // ── Container helpers ──────────────────────────────────────────────────────
 
@@ -87,6 +87,10 @@ const COL_CAR  = 24   // "6"/"8"   + gap
 const COL_MIN  = 84   // "Boarding"=76px, "Arriving"=67px, "20m"=40px + margin
 const COL_DEST = PANEL_IW - COL_LN - COL_CAR - COL_MIN  // fills the rest (218px)
 
+const SWITCH_LABEL  = '<>'
+const SWITCH_W      = getTextWidth(SWITCH_LABEL)          // 30px
+const SWITCH_DEST_W = PANEL_IW - SWITCH_W                 // 304px — budget for destination
+
 function padCol(text: string, targetPx: number): string {
   const w = getTextWidth(text)
   if (w >= targetPx) return pxTruncate(text, targetPx)
@@ -111,14 +115,11 @@ function fmtTrainRow(train: Train): string {
 
 // ── Main display class ─────────────────────────────────────────────────────
 
-const ICON_CURRENT = '/icons/Metro Station - Current.png'
-const ICON_NEARBY  = '/icons/Metro Station - Standard.png'
-const ICON_SIZE    = 24  // icons are 24×24
-const ICON_X       = 36
-const ICON_Y_OFF   = Math.floor((LH - ICON_SIZE) / 2)  // vertical centering within LH=27
-const LIST_X       = ICON_X + ICON_SIZE + 4             // list starts after icon + 4px gap
-const CLOCK_X      = 428                                // consistent in both views
-const CLOCK_W      = W - CLOCK_X - 4                   // to 4px from right edge
+// > and - are both 10px wide — names stay left-aligned regardless of which prefix is used
+const PREFIX_CURRENT = '>'
+const PREFIX_NEARBY  = '-'
+const CLOCK_X = 428   // consistent position in both views
+const CLOCK_W = W - CLOCK_X - 4
 
 export class GlassesDisplay {
   private _bridge: EvenAppBridge
@@ -129,7 +130,6 @@ export class GlassesDisplay {
   private _timetableTrains: Train[] = []
   private _timetableDistKm = 0
   private _imgCache = new Map<string, number[]>()
-  private _stationsClockId = 3  // updated in showStations; varies with item count
 
   constructor(bridge: EvenAppBridge) {
     this._bridge = bridge
@@ -163,31 +163,25 @@ export class GlassesDisplay {
       containerTotalNum: 4,
       imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
       textObject: [
-        txt(2, 'ver',    10,   6,  160, LH, 'v0.2.5'),
-        txt(3, 'title',   0, 172,    W, LH, 'METRO TRACKER'),
-        txt(4, 'cta',     0, 218,    W, LH, 'Tap to start', true),
+        txt(2, 'ver',   509,   6,   57, LH, 'v0.3.0'),
+        txt(3, 'title', 216, 172,  145, LH, 'METRO TRACKER'),
+        txt(4, 'cta',   239, 218,   99, LH, 'Tap to start', true),
       ],
     })
     this._view = 'splash'
-    // Preload images so they're cached before first showStations call
     void this._fetchImg(LOGO_URL)
       .then(bytes =>
         this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: bytes }),
       )
       .catch(err => console.warn('Logo load failed:', err))
-    void this._fetchImg(ICON_CURRENT).catch(() => {})
-    void this._fetchImg(ICON_NEARBY).catch(() => {})
     return result === 0
   }
 
   // ── Station list ───────────────────────────────────────────────────────
   //
-  // Layout: N station icons (24×24) overlaid at each list row y-position.
-  // Items never scroll (max 4 = current + 3 nearby), so icons stay aligned.
-  //
-  //   IDs 1..N — station icons    x=36, y=(4 + i*LH + 1), 24×24
-  //   ID N+1   — clock            x=428, y=258  (same position as timetable)
-  //   ID N+2   — station list     x=64, y=4     (no text prefix; icon provides distinction)
+  // Layout:
+  //   ID 1 — clock    x=428, y=258
+  //   ID 2 — list     x=36,  y=4, h=254  (▶ current, ● nearby — both 20px wide)
 
   async showStations(
     currentStation: Station,
@@ -198,49 +192,28 @@ export class GlassesDisplay {
     this._rendering = true
 
     const distMi = (distKm * 0.621371).toFixed(1)
+    const nameW = W - 36 - 4 - getTextWidth(`${PREFIX_CURRENT} `)
     const items = [
-      pxTruncate(currentStation.name.toUpperCase(), LIST_X > 60 ? W - LIST_X - 4 : 500),
+      `${PREFIX_CURRENT} ${pxTruncate(currentStation.name.toUpperCase(), nameW)}`,
       ...(nearbyStations.length > 0
-        ? nearbyStations.map(s => pxTruncate(s.name.toUpperCase(), W - LIST_X - 4))
-        : ['Searching…']),
+        ? nearbyStations.map(s => `${PREFIX_NEARBY} ${pxTruncate(s.name.toUpperCase(), nameW)}`)
+        : [`${PREFIX_NEARBY} Searching…`]),
     ]
-
-    const N = items.length
-    const clockId = N + 1
-    const listId  = N + 2
-    this._stationsClockId = clockId
-
-    const imageObjects = items.map((_, i) =>
-      img(i + 1, `icon${i}`, ICON_X, 4 + i * LH + ICON_Y_OFF, ICON_SIZE, ICON_SIZE),
-    )
 
     try {
       await this._bridge.rebuildPageContainer({
-        containerTotalNum: N + 2,
-        imageObject: imageObjects,
+        containerTotalNum: 2,
         textObject: [
-          txt(clockId, 'clock', CLOCK_X, 258, CLOCK_W, LH, `${clock()}  ${distMi}mi`),
+          txt(1, 'clock', CLOCK_X, 258, CLOCK_W, LH, `${clock()}  ${distMi}mi`),
         ],
-        listObject: [lst(listId, 'stations', LIST_X, 4, W - LIST_X - 4, 254, items, true)],
+        listObject: [lst(2, 'stations', 36, 4, W - 36 - 4, 254, items, true)],
       })
     } catch (err) {
       console.error('showStations error:', err)
-      return
     } finally {
       this._rendering = false
       this._view = 'stations'
     }
-
-    // Load icon images (cached after first fetch; blank container until loaded)
-    items.forEach((item, i) => {
-      if (item === 'Searching…') return
-      const url = i === 0 ? ICON_CURRENT : ICON_NEARBY
-      void this._fetchImg(url)
-        .then(bytes =>
-          this._bridge.updateImageRawData({ containerID: i + 1, containerName: `icon${i}`, imageData: bytes }),
-        )
-        .catch(err => console.warn(`Station icon ${i} load failed:`, err))
-    })
   }
 
   // ── Timetable ──────────────────────────────────────────────────────────
@@ -259,12 +232,15 @@ export class GlassesDisplay {
   //     ID 7 — table column header       "LN  C  DEST     MIN"
   //     List  — train rows
   //
-  // Vertical positions inside panel (from top of display):
-  //   y=12: station name    (inside frame, y_frame=4 + bw=2 + margin=6)
-  //   y=44: direction       (+LH+5)
-  //   y=76: table header    (+LH+5)
-  //   y=106: list starts    (+LH+3)
-  //   y=258: clock
+  // Vertical positions — 16px top/bottom padding from outer border (design guideline):
+  //   content_top    = 4 + 16 = 20
+  //   content_bottom = 4 + 252 - 16 = 240
+  //   y=20:  station name
+  //   y=48:  direction        (+LH+1)
+  //   y=76:  table header     (+LH+1)
+  //   y=104: list starts      (+LH+1); h=135 (5×LH), ends at y=239 ≤ 240 ✓
+  //
+  // Panel ends at y=256 (h=252). Clock at y=258 sits 2px below the panel.
 
   async showTimetable(
     station: Station,
@@ -280,35 +256,37 @@ export class GlassesDisplay {
 
     const filtered = trains.filter(t => t.group === this._trainGroup).slice(0, 5)
 
-    const exampleTrain = filtered[0] ?? trains.find(t => t.group === this._trainGroup)
-    const dirLabel = exampleTrain
-      ? `${pxTruncate(exampleTrain.destination.toUpperCase(), PANEL_IW - 20)} >`
-      : 'Switch Direction >'
+    const exampleTrain = filtered[0]
+    const dest = exampleTrain
+      ? pxTruncate(exampleTrain.destination.toUpperCase(), SWITCH_DEST_W - 4)
+      : 'No service'
+    const dirLabel = padCol(dest, SWITCH_DEST_W) + SWITCH_LABEL
 
     const rows =
       filtered.length > 0
         ? filtered.map(fmtTrainRow)
-        : ['No trains — tap to switch']
+        : ['No trains']
 
     const abbrev = pxTruncate(station.name.toUpperCase(), 156)
     const stationFull = pxTruncate(station.name.toUpperCase(), PANEL_IW)
 
     try {
       await this._bridge.rebuildPageContainer({
-        containerTotalNum: 8,
+        containerTotalNum: 7,
         textObject: [
-          // Left sidebar
-          txt(1, 'line',    18,  34,   4, 224, '', false, 2),
-          txt(2, 'abbrev',  36,  34, 156, LH, `° ${abbrev}`),
-          // Right panel
-          txt(3, 'frame',  PANEL_X, 4, PANEL_W, 280, '', false, PANEL_BW, 4),
-          txt(4, 'station', PANEL_IX, 12, PANEL_IW, LH, stationFull),
-          txt(5, 'clock',   CLOCK_X, 258, CLOCK_W, LH, clock()),
-          txt(6, 'dir',     PANEL_IX, 44, PANEL_IW, LH, dirLabel),
-          txt(7, 'hdr',     PANEL_IX, 76, PANEL_IW, LH, TABLE_HEADER),
+          // Left sidebar — no line; ▶ matches the landing page current-station marker
+          txt(1, 'abbrev',  36,  34, 156, LH, `${PREFIX_CURRENT} ${abbrev}`),
+          // Right panel (h=252 so clock at y=258 sits below the frame)
+          txt(2, 'frame',   PANEL_X,   4, PANEL_W,  252, '', false, PANEL_BW, 4),
+          txt(3, 'station', PANEL_IX, 20, PANEL_IW, LH,  stationFull),
+          txt(4, 'dir',     PANEL_IX, 48, PANEL_IW, LH,  dirLabel, true),
+          txt(5, 'hdr',     PANEL_IX, 76, PANEL_IW, LH,  TABLE_HEADER),
+          // Clock pinned outside/below the panel, same position as landing page
+          txt(6, 'clock',   CLOCK_X, 258, CLOCK_W,  LH,  clock()),
         ],
-        // isEvent on list: scroll=browse trains, tap=toggle direction
-        listObject: [lst(8, 'trains', PANEL_IX, 106, PANEL_IW, 148, rows, true)],
+        // List shifted 6px left to compensate for SDK's implicit per-item left inset,
+        // so row text visually aligns with the text containers above.
+        listObject: [lst(7, 'trains', PANEL_IX - 6, 104, PANEL_IW + 6, 5 * LH, rows)],
       })
     } catch (err) {
       console.error('showTimetable error:', err)
@@ -331,10 +309,10 @@ export class GlassesDisplay {
     )
   }
 
-  // Clock is ID (N+1) in stations view (varies with item count), ID 5 in timetable view.
+  // Clock is ID 1 in stations view, ID 6 in timetable view.
   async updateClock(): Promise<void> {
     if (this._view === 'splash') return
-    const id = this._view === 'stations' ? this._stationsClockId : 5
+    const id = this._view === 'stations' ? 1 : 6
     try {
       await this._bridge.textContainerUpgrade({
         containerID: id,

@@ -265,7 +265,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       currentDistKm = 0
       nearby = nearbyStations(stations, station.lat, station.lon, station.code)
       adapter.onStationChanged(station, 0)
-      void doRefresh(true)
+      void doRefresh()  // refresh current view; don't force timetable
     },
     unpin() {
       isPinned = false
