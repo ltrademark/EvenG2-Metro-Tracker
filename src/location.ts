@@ -1,3 +1,5 @@
+import { AppLocationAccuracy } from '@evenrealities/even_hub_sdk'
+import type { EvenAppBridge, AppLocation } from '@evenrealities/even_hub_sdk'
 import type { Station } from './wmata'
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -16,50 +18,46 @@ type StationChangeCb = (station: Station, distKm: number) => void
 type PositionUpdateCb = (lat: number, lon: number) => void
 
 export class LocationManager {
+  private _bridge: EvenAppBridge
   private _stations: Station[]
   private _onStationChange: StationChangeCb
   private _onPositionUpdate: PositionUpdateCb
-  private _watchId: number | null = null
   private _currentCode: string | null = null
-  private _retryTimer: ReturnType<typeof setTimeout> | null = null
+  private _unsubscribe: (() => void) | null = null
+  private _running = false
 
   constructor(
+    bridge: EvenAppBridge,
     stations: Station[],
     onStationChange: StationChangeCb,
     onPositionUpdate: PositionUpdateCb,
   ) {
+    this._bridge = bridge
     this._stations = stations
     this._onStationChange = onStationChange
     this._onPositionUpdate = onPositionUpdate
   }
 
   start() {
-    // One-shot call first to trigger the permission dialog proactively
-    navigator.geolocation.getCurrentPosition(
-      pos => this._handlePosition(pos),
-      err => this._handleError(err),
-      { enableHighAccuracy: false, timeout: 10_000 },
-    )
-    this._watchId = navigator.geolocation.watchPosition(
-      pos => this._handlePosition(pos),
-      err => this._handleError(err),
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 30_000 },
-    )
+    if (this._running) return
+    this._running = true
+    // Register listener before starting updates so no position is missed
+    this._unsubscribe = this._bridge.onAppLocationChanged(loc => this._handle(loc))
+    void this._bridge.startAppLocationUpdates({
+      accuracy: AppLocationAccuracy.Medium,
+      distanceFilter: 50,  // update every 50m of movement
+    })
   }
 
   stop() {
-    if (this._watchId !== null) {
-      navigator.geolocation.clearWatch(this._watchId)
-      this._watchId = null
-    }
-    if (this._retryTimer !== null) {
-      clearTimeout(this._retryTimer)
-      this._retryTimer = null
-    }
+    this._running = false
+    this._unsubscribe?.()
+    this._unsubscribe = null
+    void this._bridge.stopAppLocationUpdates()
   }
 
-  private _handlePosition(pos: GeolocationPosition) {
-    const { latitude, longitude } = pos.coords
+  private _handle(loc: AppLocation) {
+    const { latitude, longitude } = loc
     this._onPositionUpdate(latitude, longitude)
 
     let nearest: Station | null = null
@@ -76,13 +74,5 @@ export class LocationManager {
       this._currentCode = nearest.code
       this._onStationChange(nearest, nearestDist)
     }
-  }
-
-  private _handleError(err: GeolocationPositionError) {
-    console.warn('GPS error:', err.code, err.message)
-    if (err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
-      this._retryTimer = setTimeout(() => this.start(), 30_000)
-    }
-    window.dispatchEvent(new CustomEvent('gps-error', { detail: { code: err.code } }))
   }
 }

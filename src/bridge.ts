@@ -1,4 +1,4 @@
-import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { waitForEvenAppBridge, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { wmataClient } from './wmata'
 import type { Station, Train } from './wmata'
@@ -82,17 +82,18 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   let isPinned = false
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-  async function doRefresh(goToTimetable = false) {
-    if (!currentStation) return
+  async function doRefresh(goToTimetable = false, stationOverride?: Station) {
+    const station = stationOverride ?? currentStation
+    if (!station) return
 
-    const trains = await wmataClient.fetchPredictions(currentStation)
+    const trains = await wmataClient.fetchPredictions(station)
     adapter.onPredictionsUpdated(trains)
 
     const view = glassesDisplay.view
     if (goToTimetable || view === 'timetable') {
-      await glassesDisplay.showTimetable(currentStation, trains, currentDistKm)
+      await glassesDisplay.showTimetable(station, trains, currentDistKm)
     } else {
-      await glassesDisplay.showStations(currentStation, nearby, currentDistKm)
+      await glassesDisplay.showStations(station, nearby, currentDistKm)
     }
 
     const timeStr = new Date().toLocaleTimeString('en-US', {
@@ -108,7 +109,9 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
 
   function startTimer() {
     if (refreshTimer) clearInterval(refreshTimer)
-    refreshTimer = setInterval(() => void doRefresh(), 30_000)
+    refreshTimer = setInterval(() => {
+      if (glassesDisplay.view !== 'splash') void doRefresh()
+    }, 30_000)
   }
 
   function stopTimer() {
@@ -119,6 +122,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   }
 
   const locationManager = new LocationManager(
+    bridge,
     stations,
     (station, distKm) => {
       if (isPinned) return
@@ -143,51 +147,71 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     () => {},
   )
 
-  // View-aware input routing
+  // View-aware input routing — follows docs pattern:
+  // https://hub.evenrealities.com/docs/build/device-apis
+  //
+  // textEvent/listEvent: user interaction from rebuildPageContainer containers.
+  // sysEvent: foreground lifecycle events AND interactions from createStartUpPageContainer.
+  // CLICK_EVENT (0) may be normalised to undefined by the SDK — handle both.
   bridge.onEvenHubEvent(event => {
     const sys = event.sysEvent as { eventType?: number } | undefined
-    if (!sys) return
-    const eventType = sys.eventType ?? -1
+    const sysType = sys?.eventType as number | undefined
+
+    // Foreground lifecycle — always sysEvent
+    if (sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
+      startTimer(); void doRefresh(); return
+    }
+    if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
+      stopTimer(); return
+    }
+
+    // Resolve event type: prefer textEvent/listEvent (docs pattern);
+    // fall back to sysEvent for explicit press types (startup page + double-press).
+    const userEvent = event.textEvent ?? event.listEvent
+    let eventType: number | undefined
+    if (userEvent) {
+      eventType = userEvent.eventType as number | undefined
+      // undefined here means CLICK_EVENT (SDK normalisation)
+    } else if (
+      sysType === OsEventTypeList.CLICK_EVENT ||
+      sysType === OsEventTypeList.DOUBLE_CLICK_EVENT
+    ) {
+      eventType = sysType
+    } else {
+      return
+    }
+
+    const isPress = eventType === OsEventTypeList.CLICK_EVENT || eventType === undefined
+    const isDoublePress = eventType === OsEventTypeList.DOUBLE_CLICK_EVENT
+    if (!isPress && !isDoublePress) return
 
     switch (glassesDisplay.view) {
       case 'splash':
-        if (eventType === 0) adapter.onSplashTap()
+        if (isPress) {
+          adapter.onSplashTap()
+          if (currentStation) void doRefresh()
+        }
         break
 
       case 'stations':
-        if (eventType === 0) {
-          // Tap on station name → open timetable
-          const trains = wmataClient.getLastPredictions()
-          if (currentStation && trains.length > 0) {
-            void glassesDisplay.showTimetable(currentStation, trains, currentDistKm)
-          } else if (currentStation) {
-            void doRefresh()
-          }
-        } else if (eventType === 3) {
-          void bridge.shutDownPageContainer(1)
-        } else if (eventType === 4) {
-          startTimer()
-          void doRefresh()
-        } else if (eventType === 5) {
-          stopTimer()
+        if (isPress) {
+          // Resolve which station the user scrolled to before pressing.
+          // List order: [currentStation, ...nearby] — matches showStations item order.
+          const idx = event.listEvent?.currentSelectItemIndex ?? 0
+          const stationList = currentStation ? [currentStation, ...nearby] : nearby
+          const selected = stationList[idx] ?? currentStation ?? undefined
+          void doRefresh(true, selected)
         }
         break
 
       case 'timetable':
-        if (eventType === 0) {
-          // Tap → toggle direction and refresh
+        if (isPress) {
           glassesDisplay.toggleTrainGroup()
           void glassesDisplay.refreshTimetable()
-        } else if (eventType === 3) {
-          // Double tap → back to station list
+        } else if (isDoublePress) {
           if (currentStation) {
             void glassesDisplay.showStations(currentStation, nearby, currentDistKm)
           }
-        } else if (eventType === 4) {
-          startTimer()
-          void doRefresh()
-        } else if (eventType === 5) {
-          stopTimer()
         }
         break
     }
@@ -224,12 +248,12 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     if (devStation) {
       currentStation = devStation
       currentDistKm = 0
+      nearby = nearbyStations(stations, devStation.lat, devStation.lon, devStation.code)
       adapter.onStationChanged(devStation, 0)
       adapter.onStatusChanged('Dev: Metro Center (A01)')
     }
   }
 
-  void doRefresh()
   startTimer()
 
   return {

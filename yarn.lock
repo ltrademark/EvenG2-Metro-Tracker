@@ -186,6 +186,11 @@
     "@evenrealities/sim-linux-x64" "0.7.3"
     "@evenrealities/sim-win32-x64" "0.7.3"
 
+"@evenrealities/pretext@^0.1.4":
+  version "0.1.4"
+  resolved "https://registry.yarnpkg.com/@evenrealities/pretext/-/pretext-0.1.4.tgz#ff724322ef7f31e39cf92bde3d768affff230a3a"
+  integrity sha512-gSZk/uxIhZW3geOM5bP1IS0s1sg7cA7KLLpBDgH9T1+ZNHMIFTMcgQN1qw4+/Xi/rcxsDsWZ7UZndIS/s4fRcA==
+
 "@evenrealities/sim-darwin-arm64@0.7.3":
   version "0.7.3"
   resolved "https://registry.yarnpkg.com/@evenrealities/sim-darwin-arm64/-/sim-darwin-arm64-0.7.3.tgz#df0ddb9fb70d8f0ce835e5aeb63207bb9caf32a9"
