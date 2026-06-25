@@ -111,7 +111,7 @@ export class WmataClient {
     try {
       const settled = await Promise.allSettled(
         codes.map(code =>
-          fetch(`https://api.wmata.com/StationPrediction.json/jStations/${code}`, {
+          fetch(`https://api.wmata.com/StationPrediction.svc/json/GetStationPredictions/${code}`, {
             headers: { api_key: __WMATA_KEY__ },
           }).then(r => {
             if (!r.ok) throw new Error(`${r.status} for ${code}`)
