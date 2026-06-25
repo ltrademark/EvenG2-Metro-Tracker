@@ -35,6 +35,7 @@ interface TrainRaw {
   Min: string
   Car: string
   Group: string
+  LocationCode: string
 }
 
 function minToNum(min: string): number {
@@ -51,6 +52,7 @@ const CACHE_TTL = 24 * 60 * 60 * 1000
 export class WmataClient {
   private _stations: Station[] = []
   private _lastFetchAt = 0
+  private _allPredictionsRaw: TrainRaw[] = []
   private _lastPredictions: Train[] = []
   private _consecutiveErrors = 0
   private _bridge: EvenAppBridge | null = null
@@ -102,58 +104,51 @@ export class WmataClient {
 
   async fetchPredictions(station: Station): Promise<Train[]> {
     const now = Date.now()
-    // Back off to 5 minutes after 3+ consecutive errors (e.g. Metro closed, API down)
     const minInterval = this._consecutiveErrors >= 3 ? 5 * 60_000 : 30_000
-    if (now - this._lastFetchAt < minInterval) return this._lastPredictions
 
-    const codes = [station.code, station.secondaryCode].filter((c): c is string => c != null)
-
-    try {
-      const settled = await Promise.allSettled(
-        codes.map(code =>
-          fetch(`https://api.wmata.com/StationPrediction.svc/json/GetStationPredictions/${code}`, {
-            headers: { api_key: __WMATA_KEY__ },
-          }).then(r => {
-            if (!r.ok) throw new Error(`${r.status} for ${code}`)
-            return r.json() as Promise<{ Trains: TrainRaw[] }>
-          }),
-        ),
-      )
-
-      // Log any rejected codes but don't let them abort the whole fetch
-      settled.forEach((r, i) => {
-        if (r.status === 'rejected') console.warn(`Predictions skipped for ${codes[i]}:`, r.reason)
-      })
-
-      const seen = new Set<string>()
-      const trains = settled
-        .filter((r): r is PromiseFulfilledResult<{ Trains: TrainRaw[] }> => r.status === 'fulfilled')
-        .flatMap(r =>
-          r.value.Trains.map(t => ({
-            line: t.Line,
-            destination: t.DestinationName,
-            min: t.Min,
-            car: t.Car,
-            group: t.Group,
-          })),
+    if (now - this._lastFetchAt >= minInterval) {
+      try {
+        const res = await fetch(
+          'https://api.wmata.com/StationPrediction.svc/json/GetStationPredictions/All',
+          { headers: { api_key: __WMATA_KEY__ } },
         )
-        .filter(t => {
-          const key = `${t.line}|${t.destination}|${t.min}|${t.group}`
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-        .sort((a, b) => minToNum(a.min) - minToNum(b.min))
-
-      this._lastPredictions = trains
-      this._lastFetchAt = now
-      this._consecutiveErrors = 0
-      return trains
-    } catch (err) {
-      this._consecutiveErrors++
-      console.error('WMATA predictions error:', err)
-      return this._lastPredictions
+        if (!res.ok) throw new Error(`Predictions fetch failed: ${res.status}`)
+        const data = (await res.json()) as { Trains: TrainRaw[] }
+        this._allPredictionsRaw = data.Trains
+        this._lastFetchAt = now
+        this._consecutiveErrors = 0
+      } catch (err) {
+        this._consecutiveErrors++
+        console.error('WMATA predictions error:', err)
+      }
     }
+
+    return this._filterForStation(station)
+  }
+
+  private _filterForStation(station: Station): Train[] {
+    const codes = new Set(
+      [station.code, station.secondaryCode].filter((c): c is string => c != null),
+    )
+    const seen = new Set<string>()
+    const trains = this._allPredictionsRaw
+      .filter(t => codes.has(t.LocationCode))
+      .map(t => ({
+        line: t.Line,
+        destination: t.DestinationName,
+        min: t.Min,
+        car: t.Car,
+        group: t.Group,
+      }))
+      .filter(t => {
+        const key = `${t.line}|${t.destination}|${t.min}|${t.group}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => minToNum(a.min) - minToNum(b.min))
+    this._lastPredictions = trains
+    return trains
   }
 
   getLastPredictions(): Train[] {
