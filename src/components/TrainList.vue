@@ -59,18 +59,18 @@ export default defineComponent({
 .empty {
   padding: 24px;
   text-align: center;
-  color: #555;
+  color: #444;
   font-size: 13px;
 }
 .train-row {
   display: flex;
   align-items: center;
   padding: 10px 12px;
-  border-bottom: 1px solid #1e1e3a;
+  border-bottom: 1px solid #1a1a1a;
   gap: 10px;
 }
 .train-row:hover {
-  background: #1a1a35;
+  background: #141414;
 }
 .badge {
   min-width: 32px;

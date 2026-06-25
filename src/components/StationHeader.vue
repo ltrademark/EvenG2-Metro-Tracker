@@ -40,8 +40,8 @@ export default defineComponent({
   align-items: center;
   justify-content: space-between;
   padding: 14px 12px;
-  background: #16213e;
-  border-bottom: 2px solid #0f3460;
+  background: #0f0f0f;
+  border-bottom: 1px solid rgba(17, 85, 238, 0.25);
   flex-shrink: 0;
   gap: 8px;
 }
@@ -58,15 +58,15 @@ export default defineComponent({
 }
 .pin-label {
   font-size: 10px;
-  color: #4fc3f7;
+  color: #4488ff;
   font-weight: 600;
   flex-shrink: 0;
   letter-spacing: 0.03em;
 }
 .auto-btn {
   background: transparent;
-  color: #4fc3f7;
-  border: 1px solid #4fc3f7;
+  color: #1155ee;
+  border: 1px solid #1155ee;
   padding: 3px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -74,6 +74,6 @@ export default defineComponent({
   flex-shrink: 0;
 }
 .auto-btn:hover {
-  background: #1a4a8a;
+  background: rgba(17, 85, 238, 0.12);
 }
 </style>

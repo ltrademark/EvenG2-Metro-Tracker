@@ -231,7 +231,7 @@ body,
 #app {
   height: 100%;
   font-family: system-ui, -apple-system, sans-serif;
-  background: #0d0d1a;
+  background: #080808;
   color: #eee;
 }
 .app-layout {
@@ -248,8 +248,8 @@ body,
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: #12122a;
-  border-left: 1px solid #222;
+  background: #0d0d0d;
+  border-left: 1px solid #1a1a1a;
   overflow: hidden;
 }
 
@@ -265,29 +265,29 @@ body,
     height: 45vh;
     flex-shrink: 0;
     border-left: none;
-    border-top: 1px solid #222;
+    border-top: 1px solid #1a1a1a;
   }
 }
 .status-bar {
   padding: 8px 12px;
   font-size: 11px;
-  color: #666;
-  border-top: 1px solid #1e1e3a;
-  background: #0d0d1a;
+  color: #555;
+  border-top: 1px solid #1a1a1a;
+  background: #080808;
   flex-shrink: 0;
 }
 .location-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
 .location-card {
-  background: #1a1a35;
-  border: 1px solid #2e2e5a;
+  background: #111;
+  border: 1px solid rgba(17, 85, 238, 0.35);
   border-radius: 12px;
   padding: 28px 24px;
   max-width: 300px;
@@ -302,12 +302,12 @@ body,
 }
 .location-card-body {
   font-size: 13px;
-  color: #999;
+  color: #888;
   line-height: 1.5;
   margin-bottom: 20px;
 }
 .location-card-btn {
-  background: #0063A6;
+  background: #1155ee;
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -318,6 +318,6 @@ body,
   width: 100%;
 }
 .location-card-btn:active {
-  background: #004f87;
+  background: #0e44cc;
 }
 </style>
