@@ -235,6 +235,7 @@ body,
 .map-pane {
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 .sidebar {
   width: 300px;
@@ -244,6 +245,22 @@ body,
   background: #12122a;
   border-left: 1px solid #222;
   overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .app-layout {
+    flex-direction: column;
+  }
+  .map-pane {
+    flex: 1;
+  }
+  .sidebar {
+    width: 100%;
+    height: 45vh;
+    flex-shrink: 0;
+    border-left: none;
+    border-top: 1px solid #222;
+  }
 }
 .status-bar {
   padding: 8px 12px;

@@ -172,11 +172,19 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     if (userEvent) {
       eventType = userEvent.eventType as number | undefined
       // undefined here means CLICK_EVENT (SDK normalisation)
-    } else if (
-      sysType === OsEventTypeList.CLICK_EVENT ||
-      sysType === OsEventTypeList.DOUBLE_CLICK_EVENT
-    ) {
-      eventType = sysType
+    } else if (sys) {
+      // sysEvent-only (startup page or double-press).
+      // SDK may normalise CLICK_EVENT=0 to undefined on real hardware — treat that as a click.
+      // FOREGROUND_ENTER/EXIT are already handled above, so undefined here is safe to treat as click.
+      if (
+        sysType === OsEventTypeList.CLICK_EVENT ||
+        sysType === OsEventTypeList.DOUBLE_CLICK_EVENT ||
+        sysType === undefined
+      ) {
+        eventType = sysType
+      } else {
+        return
+      }
     } else {
       return
     }
