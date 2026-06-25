@@ -45,6 +45,7 @@ type Private = {
   userMarker: L.CircleMarker | null
   stationMarkers: L.CircleMarker[]
   bridgeControls: BridgeControls | null
+  hasZoomed: boolean
 }
 const _p = new WeakMap<object, Private>()
 
@@ -159,6 +160,10 @@ export default defineComponent({
           fillOpacity: 0.9,
           weight: 3,
         }).addTo(p.map)
+        if (!p.hasZoomed) {
+          p.hasZoomed = true
+          p.map.setView([lat, lon], 15)
+        }
       } else {
         p.userMarker.setLatLng([lat, lon])
       }
@@ -166,7 +171,7 @@ export default defineComponent({
   },
 
   async mounted() {
-    _p.set(this, { map: null, userMarker: null, stationMarkers: [], bridgeControls: null })
+    _p.set(this, { map: null, userMarker: null, stationMarkers: [], bridgeControls: null, hasZoomed: false })
     this._initMap()
 
     const self = this
@@ -247,7 +252,7 @@ body,
   overflow: hidden;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .app-layout {
     flex-direction: column;
   }

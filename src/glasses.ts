@@ -159,6 +159,17 @@ export class GlassesDisplay {
 
   async startup(): Promise<boolean> {
     const logoX = Math.round((W - LOGO_W) / 2)
+
+    // Pre-fetch before creating the container so updateImageRawData can be called
+    // immediately after — avoids the async gap where hardware firmware may reject
+    // a late image push to a startup container.
+    let logoBytes: number[] | null = null
+    try {
+      logoBytes = await this._fetchImg(LOGO_URL)
+    } catch (err) {
+      console.warn('Logo prefetch failed:', err)
+    }
+
     const result = await this._bridge.createStartUpPageContainer({
       containerTotalNum: 4,
       imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
@@ -169,11 +180,15 @@ export class GlassesDisplay {
       ],
     })
     this._view = 'splash'
-    void this._fetchImg(LOGO_URL)
-      .then(bytes =>
-        this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: bytes }),
-      )
-      .catch(err => console.warn('Logo load failed:', err))
+
+    if (logoBytes) {
+      try {
+        await this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: logoBytes })
+      } catch (err) {
+        console.warn('Logo update failed:', err)
+      }
+    }
+
     return result === 0
   }
 
