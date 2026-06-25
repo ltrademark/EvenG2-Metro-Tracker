@@ -109,7 +109,7 @@ export class WmataClient {
     if (now - this._lastFetchAt >= minInterval) {
       try {
         const res = await fetch(
-          'https://api.wmata.com/StationPrediction.svc/json/GetStationPredictions/All',
+          'https://api.wmata.com/StationPrediction.svc/json/GetPrediction/All',
           { headers: { api_key: __WMATA_KEY__ } },
         )
         if (!res.ok) throw new Error(`Predictions fetch failed: ${res.status}`)
