@@ -153,7 +153,7 @@ export class GlassesDisplay {
   //
   // Layout:
   //   ID 1 — logo image        centered horizontally
-  //   ID 2 — "v0.2.0"          top-left
+  //   ID 2 — "v0.2.5"          top-left
   //   ID 3 — "METRO TRACKER"   below logo
   //   ID 4 — "Tap to start"    CTA, isEventCapture
 
@@ -163,7 +163,7 @@ export class GlassesDisplay {
       containerTotalNum: 4,
       imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
       textObject: [
-        txt(2, 'ver',    10,   6,  160, LH, 'v0.2.0'),
+        txt(2, 'ver',    10,   6,  160, LH, 'v0.2.5'),
         txt(3, 'title',   0, 172,    W, LH, 'METRO TRACKER'),
         txt(4, 'cta',     0, 218,    W, LH, 'Tap to start', true),
       ],
