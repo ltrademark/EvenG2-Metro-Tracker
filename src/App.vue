@@ -5,6 +5,9 @@
 
       <SearchBar v-if="!liveView" :stations="stations" @select="onSelectStation" />
 
+      <!-- Live-update countdown (top-right) -->
+      <div v-if="liveView" class="update-counter">Updating in {{ countdown }}s</div>
+
       <!-- Version / info button -->
       <button class="info-btn" @click="showInfo = true">
         <img :src="icQuery" class="info-ic" alt="info" />
@@ -61,6 +64,11 @@ const LINE_COLORS: Record<string, string> = {
   GR: '#09801A',
   YL: '#FFD200',
 }
+
+// WMATA refreshes train positions every ~7–10s, so 10s polling stays fresh
+// without redundant calls (well within the 50k/day, 10/s rate limits).
+const POLL_SECS = 10
+const POLL_MS = POLL_SECS * 1000
 
 // Blue teardrop marking the user's GPS position (tip at the coordinate).
 const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
@@ -136,6 +144,7 @@ type Private = {
   programmatic: boolean
   trainLayer: L.LayerGroup | null
   trainTimer: ReturnType<typeof setInterval> | null
+  countdownTimer: ReturnType<typeof setInterval> | null
   trainState: Map<string, { lat: number; lon: number; bearing: number }>
   lineLayer: L.LayerGroup | null
   linePolys: { poly: L.Polyline; center: L.LatLng[]; offset: number }[]
@@ -159,6 +168,7 @@ export default defineComponent({
       centeredOnUser: false,
       showInfo: false,
       liveView: false,
+      countdown: POLL_SECS,
       icQuery,
     }
   },
@@ -219,13 +229,18 @@ export default defineComponent({
         console.warn('StandardRoutes load failed:', err)
       }
       await this._pollTrains()
-      p.trainTimer = setInterval(() => void this._pollTrains(), 15_000)
+      p.trainTimer = setInterval(() => void this._pollTrains(), POLL_MS)
+      this.countdown = POLL_SECS
+      p.countdownTimer = setInterval(() => {
+        this.countdown = Math.max(0, this.countdown - 1)
+      }, 1000)
     },
 
     _stopLive() {
       const p = _p.get(this)
       if (!p) return
       if (p.trainTimer) { clearInterval(p.trainTimer); p.trainTimer = null }
+      if (p.countdownTimer) { clearInterval(p.countdownTimer); p.countdownTimer = null }
       p.trainLayer?.clearLayers()
       p.trainState.clear()
     },
@@ -255,6 +270,7 @@ export default defineComponent({
             .addTo(p.trainLayer)
         }
         for (const id of [...state.keys()]) if (!seen.has(id)) state.delete(id)
+        this.countdown = POLL_SECS
       } catch (err) {
         console.warn('TrainPositions fetch failed:', err)
       }
@@ -380,7 +396,8 @@ export default defineComponent({
     _p.set(this, {
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
-      trainLayer: null, trainTimer: null, trainState: new Map(), lineLayer: null, linePolys: [],
+      trainLayer: null, trainTimer: null, countdownTimer: null, trainState: new Map(),
+      lineLayer: null, linePolys: [],
     })
     this._initMap()
 
@@ -421,6 +438,7 @@ export default defineComponent({
     const p = _p.get(this)
     if (p) {
       if (p.trainTimer) clearInterval(p.trainTimer)
+      if (p.countdownTimer) clearInterval(p.countdownTimer)
       p.bridgeControls?.destroy()
       p.map?.remove()
     }
@@ -492,6 +510,21 @@ body,
 .info-ic {
   width: 22px;
   height: 22px;
+}
+
+/* Live-update countdown */
+.update-counter {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 500;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: rgba(15, 15, 15, 0.85);
+  color: #cfcfcf;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(8px);
 }
 
 /* Live View toggle */
