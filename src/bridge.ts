@@ -4,7 +4,6 @@ import { wmataClient } from './wmata'
 import type { Station, Train } from './wmata'
 import { GlassesDisplay } from './glasses'
 import { LocationManager } from './location'
-import { ImuController } from './imu'
 
 export interface AppBridgeAdapter {
   setStations(stations: Station[]): void
@@ -155,14 +154,6 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     },
   )
 
-  const imuController = new ImuController(
-    bridge,
-    () => {
-      if (currentStation) void doRefresh()
-    },
-    () => {},
-  )
-
   // View-aware input routing — follows docs pattern:
   // https://hub.evenrealities.com/docs/build/device-apis
   //
@@ -262,12 +253,6 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     console.warn('Background state API not available in this SDK version')
   }
 
-  try {
-    await imuController.start()
-  } catch {
-    console.warn('IMU not available (not supported in simulator)')
-  }
-
   // Returning users: restore the last station so the board appears immediately,
   // before GPS locks. The WebView already remembers the location permission, so
   // location resumes without a prompt and refines this to the nearest station.
@@ -337,7 +322,6 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     },
     destroy() {
       stopTimer()
-      imuController.stop()
       locationManager.stop()
     },
   }
