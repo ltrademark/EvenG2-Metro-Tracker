@@ -1,5 +1,5 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ live: liveView }">
     <div class="map-wrap">
       <div ref="mapEl" class="map"></div>
 
@@ -9,6 +9,12 @@
       <button class="info-btn" @click="showInfo = true">
         <img :src="icQuery" class="info-ic" alt="info" />
         <span class="info-ver">v{{ version }}</span>
+      </button>
+
+      <!-- Live View toggle (also the way back to the normal view) -->
+      <button class="live-btn" :class="{ active: liveView }" @click="toggleLive">
+        <span class="live-dot"></span>
+        <span>Live View</span>
       </button>
 
       <!-- Recenter-on-location button -->
@@ -34,6 +40,7 @@ import { defineComponent } from 'vue'
 import * as L from 'leaflet'
 import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
+import { wmataClient } from './wmata'
 import type { Station, Train } from './wmata'
 import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
@@ -56,6 +63,17 @@ const LINE_COLORS: Record<string, string> = {
 // Blue teardrop marking the user's GPS position (tip at the coordinate).
 const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
 
+// Placeholder live-train marker: a line-colored arrowhead rotated to its heading.
+function trainIcon(line: string, bearing: number): L.DivIcon {
+  const color = LINE_COLORS[line] ?? '#888'
+  const html =
+    `<div class="train-arrow" style="transform:rotate(${bearing}deg)">` +
+    `<svg viewBox="0 0 20 20" width="20" height="20">` +
+    `<path d="M10 1 L17 18 L10 14 L3 18 Z" fill="${color}" stroke="#0a0a0a" stroke-width="1.2"/>` +
+    `</svg></div>`
+  return L.divIcon({ html, className: 'train-marker', iconSize: [20, 20], iconAnchor: [10, 10] })
+}
+
 // Non-reactive Leaflet/bridge state keyed by component instance
 type Private = {
   map: L.Map | null
@@ -64,6 +82,8 @@ type Private = {
   bridgeControls: BridgeControls | null
   hasZoomed: boolean
   programmatic: boolean
+  trainLayer: L.LayerGroup | null
+  trainTimer: ReturnType<typeof setInterval> | null
 }
 const _p = new WeakMap<object, Private>()
 
@@ -83,6 +103,7 @@ export default defineComponent({
       isPinned: false,
       centeredOnUser: false,
       showInfo: false,
+      liveView: false,
       locOff,
       locOn,
       icQuery,
@@ -118,6 +139,50 @@ export default defineComponent({
   methods: {
     onSelectStation(station: Station) {
       this.pinStation(station.code)
+    },
+
+    async toggleLive() {
+      this.liveView = !this.liveView
+      if (this.liveView) await this._startLive()
+      else this._stopLive()
+      // Map container resized (panel hidden/shown) — let Leaflet recalc.
+      this.$nextTick(() => _p.get(this)?.map?.invalidateSize())
+    },
+
+    async _startLive() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      if (!p.trainLayer) p.trainLayer = L.layerGroup().addTo(p.map)
+      try {
+        await wmataClient.loadStandardRoutes()
+      } catch (err) {
+        console.warn('StandardRoutes load failed:', err)
+      }
+      await this._pollTrains()
+      p.trainTimer = setInterval(() => void this._pollTrains(), 15_000)
+    },
+
+    _stopLive() {
+      const p = _p.get(this)
+      if (!p) return
+      if (p.trainTimer) { clearInterval(p.trainTimer); p.trainTimer = null }
+      p.trainLayer?.clearLayers()
+    },
+
+    async _pollTrains() {
+      const p = _p.get(this)
+      if (!p?.map || !p.trainLayer) return
+      try {
+        const trains = await wmataClient.fetchTrainPositions()
+        const placed = wmataClient.placeTrains(trains)
+        p.trainLayer.clearLayers()
+        for (const t of placed) {
+          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, t.bearing), interactive: false })
+            .addTo(p.trainLayer)
+        }
+      } catch (err) {
+        console.warn('TrainPositions fetch failed:', err)
+      }
     },
 
     recenter() {
@@ -202,6 +267,7 @@ export default defineComponent({
     _p.set(this, {
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
+      trainLayer: null, trainTimer: null,
     })
     this._initMap()
 
@@ -233,6 +299,7 @@ export default defineComponent({
   beforeUnmount() {
     const p = _p.get(this)
     if (p) {
+      if (p.trainTimer) clearInterval(p.trainTimer)
       p.bridgeControls?.destroy()
       p.map?.remove()
     }
@@ -266,6 +333,14 @@ body,
   height: 55vh;
   flex-shrink: 0;
 }
+/* Live view: hide the boarding panel and let the map fill the screen. */
+.app.live .map-wrap {
+  height: auto;
+  flex: 1;
+}
+.app.live .panel {
+  display: none;
+}
 .map {
   position: absolute;
   inset: 0;
@@ -296,6 +371,45 @@ body,
 .info-ic {
   width: 22px;
   height: 22px;
+}
+
+/* Live View toggle */
+.live-btn {
+  position: absolute;
+  right: 82px;
+  bottom: 16px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 22px;
+  border: none;
+  border-radius: 26px;
+  background: rgba(15, 15, 15, 0.92);
+  color: #ff3b30;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.live-btn.active {
+  background: #ff3b30;
+  color: #fff;
+}
+.live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff3b30;
+  flex-shrink: 0;
+}
+.live-btn.active .live-dot {
+  background: #fff;
+}
+.train-arrow {
+  width: 20px;
+  height: 20px;
+  transform-origin: center;
 }
 
 /* Location button */
