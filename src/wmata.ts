@@ -88,17 +88,6 @@ function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): num
   return (Math.atan2(y, x) * 180) / Math.PI
 }
 
-// Planar distance from point P to segment AB (used to slot a missing station
-// into the closest stretch of a line's path).
-function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const dx = bx - ax
-  const dy = by - ay
-  const l2 = dx * dx + dy * dy
-  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0
-  t = Math.max(0, Math.min(1, t))
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
-}
-
 function minToNum(min: string): number {
   if (min === 'ARR') return 0
   if (min === 'BRD') return 0.5
@@ -277,6 +266,41 @@ export class WmataClient {
         }
       }
       anchors.sort((a, b) => a.seq - b.seq)
+
+      // WMATA's route data omits some stations (e.g. newly-opened Potomac Yard /
+      // C11). Splice each missing line-member station in at its nearest segment
+      // with an interpolated sequence number, so BOTH the drawn line and the
+      // train positions follow the same path through it.
+      if (anchors.length >= 2) {
+        const codes = new Set(anchors.map(a => a.code))
+        const K = Math.cos((38.9 * Math.PI) / 180)
+        const missing = this._stations.filter(
+          s =>
+            s.lines.includes(route.LineCode) &&
+            !codes.has(s.code) &&
+            (!s.secondaryCode || !codes.has(s.secondaryCode)),
+        )
+        for (const m of missing) {
+          let bestI = 0
+          let bestD = Infinity
+          let bestT = 0
+          for (let i = 0; i < anchors.length - 1; i++) {
+            const ax = anchors[i].lon * K, ay = anchors[i].lat
+            const bx = anchors[i + 1].lon * K, by = anchors[i + 1].lat
+            const dx = bx - ax, dy = by - ay
+            const l2 = dx * dx + dy * dy
+            let t = l2 ? ((m.lon * K - ax) * dx + (m.lat - ay) * dy) / l2 : 0
+            t = Math.max(0, Math.min(1, t))
+            const d = Math.hypot(m.lon * K - (ax + t * dx), m.lat - (ay + t * dy))
+            if (d < bestD) { bestD = d; bestI = i; bestT = t }
+          }
+          const seq =
+            anchors[bestI].seq + bestT * (anchors[bestI + 1].seq - anchors[bestI].seq)
+          anchors.push({ seq, lat: m.lat, lon: m.lon, code: m.code })
+          anchors.sort((a, b) => a.seq - b.seq)
+        }
+      }
+
       this._routeAnchors.set(key, anchors)
     }
   }
@@ -287,37 +311,12 @@ export class WmataClient {
   }
 
   // Ordered station coordinates for a line (one direction) — the centerline to
-  // draw and to offset into a ribbon. Stations the route data omits (e.g. newly
-  // opened ones missing from StandardRoutes) are spliced in at their nearest
-  // segment so the line passes through every station's dot.
+  // draw and to offset into a ribbon. Anchors already include any spliced-in
+  // missing stations (see _buildRouteModel), so lines and trains share a path.
   getLinePath(line: string): { lat: number; lon: number }[] {
     const anchors =
       this._routeAnchors.get(`${line}:1`) ?? this._routeAnchors.get(`${line}:2`) ?? []
-    if (anchors.length < 2) return anchors.map(a => ({ lat: a.lat, lon: a.lon }))
-
-    const path = anchors.map(a => ({ lat: a.lat, lon: a.lon }))
-    const anchorCodes = new Set(anchors.map(a => a.code))
-    const K = Math.cos((38.9 * Math.PI) / 180) // lon→x scale for local planar distance
-    const missing = this._stations.filter(
-      s =>
-        s.lines.includes(line) &&
-        !anchorCodes.has(s.code) &&
-        (!s.secondaryCode || !anchorCodes.has(s.secondaryCode)),
-    )
-    for (const m of missing) {
-      let bestI = 0
-      let bestD = Infinity
-      for (let i = 0; i < path.length - 1; i++) {
-        const d = distToSegment(
-          m.lon * K, m.lat,
-          path[i].lon * K, path[i].lat,
-          path[i + 1].lon * K, path[i + 1].lat,
-        )
-        if (d < bestD) { bestD = d; bestI = i }
-      }
-      path.splice(bestI + 1, 0, { lat: m.lat, lon: m.lon })
-    }
-    return path
+    return anchors.map(a => ({ lat: a.lat, lon: a.lon }))
   }
 
   async fetchTrainPositions(): Promise<TrainPosition[]> {
