@@ -2,13 +2,9 @@
   <div class="train-list">
     <div v-if="trains.length === 0" class="empty">No arrivals found</div>
     <div v-for="(train, i) in trains" :key="i" class="train-row">
-      <span class="badge" :style="{ background: lineColor(train.line) }">
-        {{ train.line }}
-      </span>
+      <LineIcon :line="train.line" />
       <span class="dest">{{ train.destination }}</span>
-      <span class="eta" :class="{ urgent: isUrgent(train.min) }">
-        {{ formatEta(train.min) }}
-      </span>
+      <span class="eta" :class="{ soon: isSoon(train.min) }">{{ formatEta(train.min) }}</span>
     </div>
   </div>
 </template>
@@ -17,35 +13,24 @@
 import { defineComponent } from 'vue'
 import type { PropType } from 'vue'
 import type { Train } from '../wmata'
-
-const LINE_COLORS: Record<string, string> = {
-  RD: '#E51636',
-  BL: '#0063A6',
-  OR: '#E47E00',
-  SV: '#919D9D',
-  GR: '#09801A',
-  YL: '#FFD200',
-}
+import LineIcon from './LineIcon.vue'
 
 export default defineComponent({
   name: 'TrainList',
+  components: { LineIcon },
   props: {
-    trains: {
-      type: Array as PropType<Train[]>,
-      required: true,
-    },
+    trains: { type: Array as PropType<Train[]>, required: true },
   },
   methods: {
-    lineColor(line: string): string {
-      return LINE_COLORS[line] ?? '#555'
-    },
     formatEta(min: string): string {
       if (min === 'ARR') return 'ARR'
       if (min === 'BRD') return 'BRD'
       return `${min} min`
     },
-    isUrgent(min: string): boolean {
-      return min === 'ARR' || min === 'BRD' || min === '1' || min === '2'
+    isSoon(min: string): boolean {
+      if (min === 'ARR' || min === 'BRD') return true
+      const n = parseInt(min, 10)
+      return !isNaN(n) && n <= 2
     },
   },
 })
@@ -53,50 +38,39 @@ export default defineComponent({
 
 <style scoped>
 .train-list {
-  flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .empty {
-  padding: 24px;
+  padding: 28px;
   text-align: center;
-  color: #444;
-  font-size: 13px;
+  color: #555;
+  font-size: 14px;
 }
 .train-row {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  border-bottom: 1px solid #1a1a1a;
-  gap: 10px;
-}
-.train-row:hover {
-  background: #141414;
-}
-.badge {
-  min-width: 32px;
-  text-align: center;
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: bold;
-  color: #fff;
-  flex-shrink: 0;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #161616;
 }
 .dest {
   flex: 1;
-  font-size: 13px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #f2f2f2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .eta {
-  font-size: 12px;
-  color: #888;
+  font-size: 16px;
+  font-weight: 700;
+  color: #8a8a8a;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.eta.urgent {
-  color: #4ade80;
-  font-weight: 600;
+.eta.soon {
+  color: #3cd35c;
 }
 </style>

@@ -6,6 +6,7 @@ import type {
   ImageContainerProperty,
 } from '@evenrealities/even_hub_sdk'
 import type { Station, Train } from './wmata'
+import { APP_VERSION } from './version'
 
 export type GlassesView = 'splash' | 'stations' | 'timetable'
 
@@ -225,7 +226,7 @@ export class GlassesDisplay {
   // ── Splash ─────────────────────────────────────────────────────────────
   //
   //   ID 1 — logo image            centered horizontally
-  //   ID 2 — "v0.4.0"              top-left (left-anchored so it never overflows)
+  //   ID 2 — version (e.g. "v0.5.0") top-left (left-anchored so it never overflows)
   //   ID 3 — "METRO TRACKER"       below logo
   //   ID 4 — "Waiting for location…"  CTA (splash auto-dismisses on GPS lock)
 
@@ -234,7 +235,7 @@ export class GlassesDisplay {
     const ctaW = getTextWidth(cta)
     const titleW = getTextWidth('METRO TRACKER')
     return [
-      txt(2, 'ver',   8, 6, 120, LH, 'v0.4.0'),
+      txt(2, 'ver',   8, 6, 120, LH, `v${APP_VERSION}`),
       txt(3, 'title', Math.round((W - titleW) / 2), 172, titleW + 4, LH, 'METRO TRACKER'),
       txt(4, 'cta',   Math.round((W - ctaW) / 2),   218, ctaW + 4,   LH, cta, true),
     ]

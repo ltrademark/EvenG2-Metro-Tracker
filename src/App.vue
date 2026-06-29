@@ -1,11 +1,31 @@
 <template>
-  <div class="app-layout">
-    <div ref="mapEl" class="map-pane"></div>
-    <aside class="sidebar">
-      <StationHeader :station="currentStation" :is-pinned="isPinned" @unpin="unpin" />
-      <TrainList :trains="trains" />
-      <div class="status-bar">{{ statusText }}</div>
-    </aside>
+  <div class="app">
+    <div class="map-wrap">
+      <div ref="mapEl" class="map"></div>
+
+      <SearchBar :stations="stations" @select="onSelectStation" />
+
+      <!-- Version / info button -->
+      <button class="info-btn" @click="showInfo = true">
+        <img :src="icQuery" class="info-ic" alt="info" />
+        <span class="info-ver">v{{ version }}</span>
+      </button>
+
+      <!-- Recenter-on-location button -->
+      <button class="loc-btn" @click="recenter" aria-label="My location">
+        <img :src="locIcon" class="loc-ic" alt="" />
+      </button>
+    </div>
+
+    <StationPanel
+      :station="currentStation"
+      :is-pinned="isPinned"
+      :dist-km="currentDistKm"
+      :has-gps="userLat !== null"
+      :trains="trains"
+    />
+
+    <InfoModal v-if="showInfo" @close="showInfo = false" />
   </div>
 </template>
 
@@ -15,8 +35,14 @@ import * as L from 'leaflet'
 import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
 import type { Station, Train } from './wmata'
-import StationHeader from './components/StationHeader.vue'
-import TrainList from './components/TrainList.vue'
+import { APP_VERSION } from './version'
+import StationPanel from './components/StationPanel.vue'
+import SearchBar from './components/SearchBar.vue'
+import InfoModal from './components/InfoModal.vue'
+import icQuery from './assets/query icon.svg'
+import locOff from './assets/location-state_off.svg'
+import locOn from './assets/location-state_on.svg'
+import pinUser from './assets/Pindrop.svg'
 
 const LINE_COLORS: Record<string, string> = {
   RD: '#E51636',
@@ -27,22 +53,27 @@ const LINE_COLORS: Record<string, string> = {
   YL: '#FFD200',
 }
 
+// Blue teardrop marking the user's GPS position (tip at the coordinate).
+const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
+
 // Non-reactive Leaflet/bridge state keyed by component instance
 type Private = {
   map: L.Map | null
-  userMarker: L.CircleMarker | null
+  userPin: L.Marker | null
   stationMarkers: L.CircleMarker[]
   bridgeControls: BridgeControls | null
   hasZoomed: boolean
+  programmatic: boolean
 }
 const _p = new WeakMap<object, Private>()
 
 export default defineComponent({
   name: 'App',
-  components: { StationHeader, TrainList },
+  components: { StationPanel, SearchBar, InfoModal },
 
   data() {
     return {
+      version: APP_VERSION,
       stations: [] as Station[],
       trains: [] as Train[],
       currentStation: null as Station | null,
@@ -50,54 +81,86 @@ export default defineComponent({
       userLat: null as number | null,
       userLon: null as number | null,
       isPinned: false,
-      statusText: 'Starting…',
+      centeredOnUser: false,
+      showInfo: false,
+      locOff,
+      locOn,
+      icQuery,
     }
+  },
+
+  computed: {
+    locIcon(): string {
+      return this.userLat !== null && this.centeredOnUser ? this.locOn : this.locOff
+    },
   },
 
   watch: {
     stations(newStations: Station[]) {
       if (newStations.length > 0) this._placeStationMarkers()
     },
-    currentStation(station: Station | null) {
-      // Before the first GPS fix, center on the known/persisted station so the
-      // user sees their area immediately instead of the DC-wide default view.
+    currentStation() {
       const p = _p.get(this)
-      if (station && p?.map && !p.hasZoomed) {
-        p.map.setView([station.lat, station.lon], 15)
+      // Pan to a manually selected station; before the first GPS fix, also
+      // center on the known/persisted station so the user sees their area.
+      if (this.currentStation && p?.map && (this.isPinned || !p.hasZoomed)) {
+        this._setView(this.currentStation.lat, this.currentStation.lon, 15)
       }
     },
     userLat() {
-      if (this.userLat !== null && this.userLon !== null) {
-        this._moveUserDot(this.userLat, this.userLon)
-      }
+      if (this.userLat !== null && this.userLon !== null) this._renderUserPin(this.userLat, this.userLon)
     },
     userLon() {
-      if (this.userLat !== null && this.userLon !== null) {
-        this._moveUserDot(this.userLat, this.userLon)
-      }
+      if (this.userLat !== null && this.userLon !== null) this._renderUserPin(this.userLat, this.userLon)
     },
   },
 
   methods: {
-    unpin() {
-      this.isPinned = false
-      _p.get(this)?.bridgeControls?.unpin()
+    onSelectStation(station: Station) {
+      this.pinStation(station.code)
+    },
+
+    recenter() {
+      const p = _p.get(this)
+      if (!p?.map || this.userLat === null || this.userLon === null) return
+      // Returning to "my location" also drops any manual station selection.
+      if (this.isPinned) {
+        this.isPinned = false
+        p.bridgeControls?.unpin()
+      }
+      this._setView(this.userLat, this.userLon, 15)
+      this.centeredOnUser = true
     },
 
     pinStation(code: string) {
       this.isPinned = true
+      this.centeredOnUser = false
       _p.get(this)?.bridgeControls?.pinStation(code)
+    },
+
+    _setView(lat: number, lon: number, zoom: number) {
+      const p = _p.get(this)
+      if (!p?.map) return
+      p.programmatic = true
+      p.map.setView([lat, lon], zoom)
     },
 
     _initMap() {
       const el = this.$refs.mapEl as HTMLElement
-      const map = L.map(el).setView([38.9072, -77.0369], 12)
+      const map = L.map(el, { zoomControl: false, attributionControl: false }).setView([38.9072, -77.0369], 11)
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
         maxZoom: 19,
         subdomains: 'abcd',
       }).addTo(map)
-      _p.get(this)!.map = map
+      const p = _p.get(this)!
+      p.map = map
+      // Any user-driven move clears the "centered on me" state.
+      map.on('movestart', () => {
+        if (!p.programmatic) this.centeredOnUser = false
+      })
+      map.on('moveend', () => {
+        p.programmatic = false
+      })
     },
 
     _placeStationMarkers() {
@@ -106,11 +169,11 @@ export default defineComponent({
       for (const station of this.stations) {
         const color = station.lines[0] ? (LINE_COLORS[station.lines[0]] ?? '#888') : '#888'
         const marker = L.circleMarker([station.lat, station.lon], {
-          radius: 6,
-          color: '#fff',
+          radius: 5,
+          color: '#0a0a0a',
           fillColor: color,
           fillOpacity: 1,
-          weight: 2,
+          weight: 1,
         })
           .bindTooltip(station.name)
           .addTo(p.map)
@@ -119,64 +182,49 @@ export default defineComponent({
       }
     },
 
-    _moveUserDot(lat: number, lon: number) {
+    _renderUserPin(lat: number, lon: number) {
       const p = _p.get(this)!
       if (!p.map) return
-      if (!p.userMarker) {
-        p.userMarker = L.circleMarker([lat, lon], {
-          radius: 9,
-          color: '#fff',
-          fillColor: '#4285F4',
-          fillOpacity: 0.9,
-          weight: 3,
-        }).addTo(p.map)
+      if (!p.userPin) {
+        p.userPin = L.marker([lat, lon], { icon: USER_PIN, interactive: false }).addTo(p.map)
         if (!p.hasZoomed) {
           p.hasZoomed = true
-          p.map.setView([lat, lon], 15)
+          this._setView(lat, lon, 15)
+          this.centeredOnUser = true
         }
       } else {
-        p.userMarker.setLatLng([lat, lon])
+        p.userPin.setLatLng([lat, lon])
       }
     },
   },
 
   async mounted() {
-    _p.set(this, { map: null, userMarker: null, stationMarkers: [], bridgeControls: null, hasZoomed: false })
+    _p.set(this, {
+      map: null, userPin: null, stationMarkers: [],
+      bridgeControls: null, hasZoomed: false, programmatic: false,
+    })
     this._initMap()
 
     const self = this
     const controls = await initBridge({
-      setStations(stations) {
-        self.stations = stations
-      },
+      setStations(stations) { self.stations = stations },
       onStationChanged(station, distKm) {
         self.currentStation = station
         self.currentDistKm = distKm
       },
-      onPredictionsUpdated(trains) {
-        self.trains = trains
-      },
+      onPredictionsUpdated(trains) { self.trains = trains },
       onGpsPositionUpdated(lat, lon) {
         self.userLat = lat
         self.userLon = lon
       },
-      onStatusChanged(text) {
-        self.statusText = text
-      },
+      onStatusChanged() {},
       onSplashTap() {
-        // Fallback: ensure SDK location is running (idempotent — guarded by _running).
         _p.get(self)?.bridgeControls?.startLocation()
       },
-      getIsPinned() {
-        return self.isPinned
-      },
-      getCurrentStationCode() {
-        return self.currentStation?.code ?? null
-      },
+      getIsPinned() { return self.isPinned },
+      getCurrentStationCode() { return self.currentStation?.code ?? null },
     })
     _p.get(this)!.bridgeControls = controls
-    // Location is delivered by the Even Hub SDK, which prompts for its own OS
-    // permission, so start it directly — no browser-permission gate or overlay.
     controls.startLocation()
   },
 
@@ -203,49 +251,69 @@ body,
 #app {
   height: 100%;
   font-family: system-ui, -apple-system, sans-serif;
-  background: #080808;
+  background: #0a0a0a;
   color: #eee;
 }
-.app-layout {
-  display: flex;
-  height: 100vh;
-}
-.map-pane {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-.sidebar {
-  width: 300px;
-  flex-shrink: 0;
+.app {
   display: flex;
   flex-direction: column;
-  background: #0d0d0d;
-  border-left: 1px solid #1a1a1a;
-  overflow: hidden;
+  height: 100vh;
+}
+.map-wrap {
+  position: relative;
+  height: 55vh;
+  flex-shrink: 0;
+}
+.map {
+  position: absolute;
+  inset: 0;
+  background: #0a0a0a;
+}
+.leaflet-container {
+  background: #0a0a0a;
 }
 
-@media (max-width: 900px) {
-  .app-layout {
-    flex-direction: column;
-  }
-  .map-pane {
-    flex: 1;
-  }
-  .sidebar {
-    width: 100%;
-    height: 45vh;
-    flex-shrink: 0;
-    border-left: none;
-    border-top: 1px solid #1a1a1a;
-  }
+/* Version / info button */
+.info-btn {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: none;
+  border-radius: 18px;
+  background: rgba(15, 15, 15, 0.9);
+  color: #cfcfcf;
+  font-size: 13px;
+  cursor: pointer;
 }
-.status-bar {
-  padding: 8px 12px;
-  font-size: 11px;
-  color: #555;
-  border-top: 1px solid #1a1a1a;
-  background: #080808;
-  flex-shrink: 0;
+.info-ic {
+  width: 22px;
+  height: 22px;
+}
+
+/* Location button */
+.loc-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 500;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 15, 15, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.loc-ic {
+  width: 28px;
+  height: 28px;
 }
 </style>
