@@ -44,7 +44,7 @@ import * as L from 'leaflet'
 import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
 import { wmataClient, bearingDeg } from './wmata'
-import type { Station, Train } from './wmata'
+import type { Station, Train, PlacedTrain } from './wmata'
 import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
@@ -134,6 +134,25 @@ function trainIcon(line: string, bearing: number, geomBearing: number): L.DivIco
   return L.divIcon({ html, className: 'train-marker', iconSize: [TRAIN_SIZE, TRAIN_SIZE], iconAnchor: [c - ox, c - oy] })
 }
 
+// Tap-a-train popup: line badge → destination, car count, train number.
+function trainPopupHtml(t: PlacedTrain): string {
+  const color = LINE_COLORS[t.line] ?? '#888'
+  const txt = t.line === 'YL' || t.line === 'SV' ? '#000' : '#fff'
+  const dest = t.destination
+    ? wmataClient.getStationByCode(t.destination)?.name ?? t.destination
+    : 'No Passenger'
+  const meta = [t.carCount ? `${t.carCount}-car` : '', t.trainNumber ? `Train ${t.trainNumber}` : '']
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    `<div class="train-popup">` +
+    `<div class="tp-head"><span class="tp-badge" style="background:${color};color:${txt}">${t.line}</span>` +
+    `<span class="tp-dest">${dest}</span></div>` +
+    (meta ? `<div class="tp-meta">${meta}</div>` : '') +
+    `</div>`
+  )
+}
+
 // Non-reactive Leaflet/bridge state keyed by component instance
 type Private = {
   map: L.Map | null
@@ -146,6 +165,7 @@ type Private = {
   trainTimer: ReturnType<typeof setInterval> | null
   countdownTimer: ReturnType<typeof setInterval> | null
   trainState: Map<string, { lat: number; lon: number; bearing: number }>
+  trainMarkers: Map<string, L.Marker>
   lineLayer: L.LayerGroup | null
   linePolys: { poly: L.Polyline; center: L.LatLng[]; offset: number }[]
 }
@@ -242,6 +262,7 @@ export default defineComponent({
       if (p.trainTimer) { clearInterval(p.trainTimer); p.trainTimer = null }
       if (p.countdownTimer) { clearInterval(p.countdownTimer); p.countdownTimer = null }
       p.trainLayer?.clearLayers()
+      p.trainMarkers.clear()
       p.trainState.clear()
     },
 
@@ -252,8 +273,8 @@ export default defineComponent({
         const trains = await wmataClient.fetchTrainPositions()
         const placed = wmataClient.placeTrains(trains)
         const state = p.trainState
+        const markers = p.trainMarkers
         const seen = new Set<string>()
-        p.trainLayer.clearLayers()
         for (const t of placed) {
           seen.add(t.trainId)
           // Travel direction comes from how the train actually moved since the
@@ -266,10 +287,23 @@ export default defineComponent({
             bearing = moved > 1e-4 ? bearingDeg(prev.lat, prev.lon, t.lat, t.lon) : prev.bearing
           }
           state.set(t.trainId, { lat: t.lat, lon: t.lon, bearing })
-          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, bearing, t.geomBearing), interactive: false })
-            .addTo(p.trainLayer)
+          const icon = trainIcon(t.line, bearing, t.geomBearing)
+          // Reuse the marker by id so an open popup survives the refresh.
+          const m = markers.get(t.trainId)
+          if (m) {
+            m.setLatLng([t.lat, t.lon])
+            m.setIcon(icon)
+            m.setPopupContent(trainPopupHtml(t))
+          } else {
+            const nm = L.marker([t.lat, t.lon], { icon, interactive: true })
+            nm.bindPopup(trainPopupHtml(t), { closeButton: true, className: 'train-popup-wrap' })
+            nm.addTo(p.trainLayer)
+            markers.set(t.trainId, nm)
+          }
         }
-        for (const id of [...state.keys()]) if (!seen.has(id)) state.delete(id)
+        for (const [id, m] of markers) {
+          if (!seen.has(id)) { m.remove(); markers.delete(id); state.delete(id) }
+        }
         this.countdown = POLL_SECS
       } catch (err) {
         console.warn('TrainPositions fetch failed:', err)
@@ -397,7 +431,7 @@ export default defineComponent({
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
       trainLayer: null, trainTimer: null, countdownTimer: null, trainState: new Map(),
-      lineLayer: null, linePolys: [],
+      trainMarkers: new Map(), lineLayer: null, linePolys: [],
     })
     this._initMap()
 
@@ -567,6 +601,49 @@ body,
 }
 .train-arrow svg {
   display: block;
+}
+
+/* Tap-a-train popup (dark theme — scoped class beats Leaflet's defaults) */
+.train-popup-wrap .leaflet-popup-content-wrapper {
+  background: #141414;
+  color: #eee;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.train-popup-wrap .leaflet-popup-content {
+  margin: 10px 14px;
+}
+.train-popup-wrap .leaflet-popup-tip {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+}
+.train-popup-wrap .leaflet-popup-close-button {
+  color: #777;
+}
+.train-popup .tp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.train-popup .tp-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.train-popup .tp-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #9a9a9a;
 }
 
 /* Location button */

@@ -20,6 +20,7 @@ export interface Train {
 // A live train from the TrainPositions feed (position is a track-circuit id).
 export interface TrainPosition {
   trainId: string
+  trainNumber: string
   lineCode: string | null
   directionNum: number
   circuitId: number
@@ -32,12 +33,14 @@ export interface TrainPosition {
 // A live train resolved to map coordinates via the circuit→route model.
 export interface PlacedTrain {
   trainId: string
+  trainNumber: string
   line: string
   lat: number
   lon: number
   geomBearing: number // line geometry direction (increasing seq) — for ribbon offset
   direction: number // WMATA DirectionNum (1 or 2)
   destination: string | null
+  carCount: number
 }
 
 interface StationRaw {
@@ -63,6 +66,7 @@ interface TrainRaw {
 
 interface TrainPositionRaw {
   TrainId: string
+  TrainNumber: string
   CarCount: number
   DirectionNum: number
   CircuitId: number
@@ -329,6 +333,7 @@ export class WmataClient {
     const data = (await res.json()) as { TrainPositions: TrainPositionRaw[] }
     return data.TrainPositions.map(t => ({
       trainId: t.TrainId,
+      trainNumber: t.TrainNumber,
       lineCode: t.LineCode,
       directionNum: t.DirectionNum,
       circuitId: t.CircuitId,
@@ -379,12 +384,14 @@ export class WmataClient {
     // Travel direction is derived from movement between polls on the UI side.
     return {
       trainId: t.trainId,
+      trainNumber: t.trainNumber,
       line: t.lineCode!,
       lat,
       lon,
       geomBearing: bearingDeg(prev.lat, prev.lon, next.lat, next.lon),
       direction: t.directionNum,
       destination: t.destinationStationCode,
+      carCount: t.carCount,
     }
   }
 }
