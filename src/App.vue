@@ -109,12 +109,15 @@ function trainIcon(line: string, bearing: number, direction: number): L.DivIcon 
   const svg = (direction === 2 ? dir2Raw : dir1Raw)
     .replace('fill="white"', `fill="${color}"`)
     .replace('width="50" height="50"', `width="${TRAIN_SIZE}" height="${TRAIN_SIZE}"`)
+  // The SVG's arrow nub points out the side (E for dir 1, W for dir 2), so
+  // rotate an extra ∓90° to make the arrow — not the icon's top — lead.
+  const rot = bearing + (direction === 2 ? 90 : -90)
   const off = offsetPx(line)
   const rad = (bearing * Math.PI) / 180
-  const ox = Math.cos(rad) * off // perpendicular to heading, matching offsetLatLngs
+  const ox = Math.cos(rad) * off // offset stays perpendicular to actual heading
   const oy = Math.sin(rad) * off
   const c = TRAIN_SIZE / 2
-  const html = `<div class="train-arrow" style="transform:rotate(${bearing}deg)">${svg}</div>`
+  const html = `<div class="train-arrow" style="transform:rotate(${rot}deg)">${svg}</div>`
   return L.divIcon({ html, className: 'train-marker', iconSize: [TRAIN_SIZE, TRAIN_SIZE], iconAnchor: [c - ox, c - oy] })
 }
 
