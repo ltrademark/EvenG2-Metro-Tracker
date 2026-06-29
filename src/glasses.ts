@@ -97,10 +97,12 @@ function clock(): string {
   return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Bottom-right status: distance + clock, e.g. "0.1mi • 2:45 PM"
+// Bottom-right status: distance + clock, e.g. "0.1mi • 2:45 PM". The distance
+// is dropped when it would read 0.0 (at the station) or there's no GPS fix.
 function statusStr(distKm: number): string {
-  const distMi = (distKm * 0.621371).toFixed(1)
-  return `${distMi}mi • ${clock()}`
+  const mi = distKm * 0.621371
+  const clk = clock()
+  return mi >= 0.05 ? `${mi.toFixed(1)}mi • ${clk}` : clk
 }
 
 function fmtMin(min: string): string {

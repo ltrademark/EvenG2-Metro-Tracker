@@ -208,9 +208,10 @@ export default defineComponent({
     const self = this
     const controls = await initBridge({
       setStations(stations) { self.stations = stations },
-      onStationChanged(station, distKm) {
+      onStationChanged(station, distKm, selected) {
         self.currentStation = station
         self.currentDistKm = distKm
+        self.isPinned = selected
       },
       onDistanceChanged(distKm) { self.currentDistKm = distKm },
       onPredictionsUpdated(trains) { self.trains = trains },

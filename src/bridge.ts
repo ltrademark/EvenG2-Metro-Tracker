@@ -96,22 +96,19 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     const trains = await wmataClient.fetchPredictions(station)
     adapter.onPredictionsUpdated(trains)
 
+    // Single source of truth for what both UIs display: the focused station,
+    // its distance from the user, and whether it was manually chosen.
+    const hasGps = userLat !== 0 || userLon !== 0
+    currentDistKm = hasGps ? haversineKm(userLat, userLon, station.lat, station.lon) : 0
+    const selected = isPinned || (!!viewedStation && viewedStation.code !== currentStation.code)
+    adapter.onStationChanged(station, currentDistKm, selected)
+
     const locationOn = !isPinned
     if (inTimetable) {
       await glassesDisplay.showTimetable(station, trains, currentDistKm, currentStation, nearby, locationOn)
     } else {
       await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn)
     }
-
-    const timeStr = new Date().toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    const distMi = (currentDistKm * 0.621371).toFixed(1)
-    const errors = wmataClient.getConsecutiveErrors()
-    adapter.onStatusChanged(
-      errors > 0 ? `${timeStr}  ⚠ API error` : `${timeStr}  • ${distMi}mi`,
-    )
   }
 
   // Persist the home station across sessions so returning users land on their
@@ -137,23 +134,22 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   const locationManager = new LocationManager(
     bridge,
     stations,
-    (station, distKm) => {
+    (station) => {
       if (isPinned) return
       currentStation = station
-      currentDistKm = distKm
       nearby = nearbyStations(stations, userLat, userLon, station.code)
-      adapter.onStationChanged(station, distKm)
       persistStation()
-      void doRefresh()
+      void doRefresh()   // doRefresh notifies both UIs of the focused station
     },
     (lat, lon) => {
       userLat = lat
       userLon = lon
       adapter.onGpsPositionUpdated(lat, lon)
-      // Keep the distance to the focused station (current or pinned) live as
-      // the user moves, independent of which station is shown.
-      if (currentStation) {
-        currentDistKm = haversineKm(lat, lon, currentStation.lat, currentStation.lon)
+      // Keep the distance to the focused station (current or selected) live as
+      // the user moves, between full refreshes.
+      const focused = viewedStation ?? currentStation
+      if (focused) {
+        currentDistKm = haversineKm(lat, lon, focused.lat, focused.lon)
         adapter.onDistanceChanged(currentDistKm)
       }
     },
@@ -253,14 +249,14 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     }))
     bridge.onBackgroundRestore?.('state', (saved: unknown) => {
       const s = saved as { stationCode?: string; isPinned?: boolean }
+      isPinned = s.isPinned ?? false
       if (s.stationCode) {
         const station = wmataClient.getStationByCode(s.stationCode)
         if (station) {
           currentStation = station
-          adapter.onStationChanged(station, 0)
+          adapter.onStationChanged(station, 0, isPinned)
         }
       }
-      isPinned = s.isPinned ?? false
     })
   } catch {
     console.warn('Background state API not available in this SDK version')
@@ -283,8 +279,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         if (station) {
           currentStation = station
           nearby = nearbyStations(stations, station.lat, station.lon, station.code)
-          adapter.onStationChanged(station, 0)
-          void doRefresh()
+          void doRefresh()   // doRefresh notifies both UIs
         }
       }
     } catch { /* nothing persisted yet */ }
@@ -296,7 +291,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       currentStation = devStation
       currentDistKm = 0
       nearby = nearbyStations(stations, devStation.lat, devStation.lon, devStation.code)
-      adapter.onStationChanged(devStation, 0)
+      adapter.onStationChanged(devStation, 0, false)
       adapter.onStatusChanged('Dev: Metro Center (A01)')
     }
   }
@@ -310,20 +305,14 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       isPinned = true            // manual pin → "location off" icon
       viewedStation = null
       currentStation = station
-      // Distance from the user's GPS position to the selected station (0 when
-      // there's no fix yet — the web side hides it without GPS).
-      currentDistKm = (userLat !== 0 || userLon !== 0)
-        ? haversineKm(userLat, userLon, station.lat, station.lon)
-        : 0
       nearby = nearbyStations(stations, station.lat, station.lon, station.code)
-      adapter.onStationChanged(station, currentDistKm)
       persistStation()
-      void doRefresh()  // refresh current view; don't force timetable
+      void doRefresh()  // doRefresh computes distance + notifies both UIs
     },
     unpin() {
       isPinned = false           // "Auto" → re-lock to GPS, "location on" icon
       viewedStation = null
-      // Snap back to the GPS-nearest station so the glasses reflect the change
+      // Snap back to the GPS-nearest station so both UIs reflect the change
       // immediately instead of waiting for the next location update.
       if (userLat !== 0 || userLon !== 0) {
         let nearest: Station | null = null
@@ -334,9 +323,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         }
         if (nearest) {
           currentStation = nearest
-          currentDistKm = best
           nearby = nearbyStations(stations, userLat, userLon, nearest.code)
-          adapter.onStationChanged(nearest, best)
         }
       }
       persistStation()
