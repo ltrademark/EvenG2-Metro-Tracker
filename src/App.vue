@@ -190,6 +190,9 @@ export default defineComponent({
       onGpsPositionUpdated(lat, lon) {
         self.userLat = lat
         self.userLon = lon
+        // Location is clearly working now (data arrived via the Even Hub SDK,
+        // independent of the browser permission), so dismiss the access prompt.
+        self.showLocationPrompt = false
       },
       onStatusChanged(text) {
         self.statusText = text
