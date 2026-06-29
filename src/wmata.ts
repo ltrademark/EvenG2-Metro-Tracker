@@ -224,6 +224,7 @@ export class WmataClient {
   // the stations bracketing its circuit. Requires loadStations() first.
 
   async loadStandardRoutes(): Promise<void> {
+    if (this._standardRoutes.length) return // already loaded + model built
     let routes: StandardRouteRaw[] | null = null
     if (this._bridge) {
       const cached = await this._bridge.getLocalStorage(ROUTES_KEY)
@@ -267,6 +268,19 @@ export class WmataClient {
       anchors.sort((a, b) => a.seq - b.seq)
       this._routeAnchors.set(key, anchors)
     }
+  }
+
+  // Distinct line codes that have route geometry.
+  getLineCodes(): string[] {
+    return [...new Set(this._standardRoutes.map(r => r.LineCode))]
+  }
+
+  // Ordered station coordinates for a line (one direction) — the centerline to
+  // draw and to offset into a ribbon.
+  getLinePath(line: string): { lat: number; lon: number }[] {
+    const anchors =
+      this._routeAnchors.get(`${line}:1`) ?? this._routeAnchors.get(`${line}:2`) ?? []
+    return anchors.map(a => ({ lat: a.lat, lon: a.lon }))
   }
 
   async fetchTrainPositions(): Promise<TrainPosition[]> {

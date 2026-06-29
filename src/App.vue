@@ -63,15 +63,56 @@ const LINE_COLORS: Record<string, string> = {
 // Blue teardrop marking the user's GPS position (tip at the coordinate).
 const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
 
-// Placeholder live-train marker: a line-colored arrowhead rotated to its heading.
+// Fixed draw order for the parallel-ribbon offset — a line always sits on the
+// same side relative to its neighbours. Offsets are in pixels (constant across
+// zoom), so shared trunks render as evenly-spaced colored ribbons.
+const LINE_ORDER = ['RD', 'OR', 'SV', 'BL', 'YL', 'GR']
+const LINE_W = 3
+const LINE_GAP = 1
+
+function offsetPx(line: string): number {
+  const i = LINE_ORDER.indexOf(line)
+  const idx = i < 0 ? (LINE_ORDER.length - 1) / 2 : i
+  return (idx - (LINE_ORDER.length - 1) / 2) * (LINE_W + LINE_GAP)
+}
+
+// Shift a polyline perpendicular by a constant pixel amount in the current
+// projection (recomputed on zoom). Per-vertex normal = mean of adjacent
+// segment normals, so corners miter reasonably.
+function offsetLatLngs(map: L.Map, latlngs: L.LatLng[], px: number): L.LatLng[] {
+  if (!px) return latlngs
+  const pts = latlngs.map(ll => map.latLngToLayerPoint(ll))
+  const out: L.LatLng[] = []
+  for (let i = 0; i < pts.length; i++) {
+    const cur = pts[i]
+    let nx = 0, ny = 0, n = 0
+    const add = (a: L.Point, b: L.Point) => {
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len = Math.hypot(dx, dy) || 1
+      nx += -dy / len; ny += dx / len; n++
+    }
+    if (i > 0) add(pts[i - 1], cur)
+    if (i < pts.length - 1) add(cur, pts[i + 1])
+    if (n) { nx /= n; ny /= n; const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l }
+    out.push(map.layerPointToLatLng(L.point(cur.x + nx * px, cur.y + ny * px)))
+  }
+  return out
+}
+
+// Placeholder live-train marker: a line-colored arrowhead rotated to its
+// heading, shifted onto its line's ribbon (same pixel offset as the line).
 function trainIcon(line: string, bearing: number): L.DivIcon {
   const color = LINE_COLORS[line] ?? '#888'
+  const off = offsetPx(line)
+  const rad = (bearing * Math.PI) / 180
+  const ox = Math.cos(rad) * off // perpendicular to heading, matching offsetLatLngs
+  const oy = Math.sin(rad) * off
   const html =
     `<div class="train-arrow" style="transform:rotate(${bearing}deg)">` +
     `<svg viewBox="0 0 20 20" width="20" height="20">` +
     `<path d="M10 1 L17 18 L10 14 L3 18 Z" fill="${color}" stroke="#0a0a0a" stroke-width="1.2"/>` +
     `</svg></div>`
-  return L.divIcon({ html, className: 'train-marker', iconSize: [20, 20], iconAnchor: [10, 10] })
+  return L.divIcon({ html, className: 'train-marker', iconSize: [20, 20], iconAnchor: [10 - ox, 10 - oy] })
 }
 
 // Non-reactive Leaflet/bridge state keyed by component instance
@@ -84,6 +125,8 @@ type Private = {
   programmatic: boolean
   trainLayer: L.LayerGroup | null
   trainTimer: ReturnType<typeof setInterval> | null
+  lineLayer: L.LayerGroup | null
+  linePolys: { poly: L.Polyline; center: L.LatLng[]; offset: number }[]
 }
 const _p = new WeakMap<object, Private>()
 
@@ -217,6 +260,9 @@ export default defineComponent({
         maxZoom: 19,
         subdomains: 'abcd',
       }).addTo(map)
+      // Route lines sit below the station dots (default overlay pane).
+      map.createPane('lines')
+      map.getPane('lines')!.style.zIndex = '350'
       const p = _p.get(this)!
       p.map = map
       // Any user-driven move clears the "centered on me" state.
@@ -226,24 +272,59 @@ export default defineComponent({
       map.on('moveend', () => {
         p.programmatic = false
       })
+      // Pixel offsets are zoom-dependent — recompute the ribbons after a zoom.
+      map.on('zoomend', () => this._renderLineOffsets())
     },
 
     _placeStationMarkers() {
       const p = _p.get(this)!
       if (!p.map) return
       for (const station of this.stations) {
-        const color = station.lines[0] ? (LINE_COLORS[station.lines[0]] ?? '#888') : '#888'
+        // Uniform white dot with a black ring — the colored ribbon carries the
+        // line identity now.
         const marker = L.circleMarker([station.lat, station.lon], {
-          radius: 5,
-          color: '#0a0a0a',
-          fillColor: color,
+          radius: 4,
+          color: '#000',
+          fillColor: '#fff',
           fillOpacity: 1,
-          weight: 1,
+          weight: 2,
         })
           .bindTooltip(station.name)
           .addTo(p.map)
         marker.on('click', () => this.pinStation(station.code))
         p.stationMarkers.push(marker)
+      }
+    },
+
+    // Draw each line's centerline as a colored ribbon, offset so shared trunks
+    // fan out instead of overlapping. Requires loadStandardRoutes() first.
+    _drawLines() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      if (!p.lineLayer) p.lineLayer = L.layerGroup().addTo(p.map)
+      p.lineLayer.clearLayers()
+      p.linePolys = []
+      for (const line of wmataClient.getLineCodes()) {
+        const path = wmataClient.getLinePath(line)
+        if (path.length < 2) continue
+        const center = path.map(pt => L.latLng(pt.lat, pt.lon))
+        const poly = L.polyline(center, {
+          color: LINE_COLORS[line] ?? '#888',
+          weight: LINE_W,
+          opacity: 0.95,
+          pane: 'lines',
+          interactive: false,
+        }).addTo(p.lineLayer)
+        p.linePolys.push({ poly, center, offset: offsetPx(line) })
+      }
+      this._renderLineOffsets()
+    },
+
+    _renderLineOffsets() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      for (const lp of p.linePolys) {
+        lp.poly.setLatLngs(offsetLatLngs(p.map, lp.center, lp.offset))
       }
     },
 
@@ -267,7 +348,7 @@ export default defineComponent({
     _p.set(this, {
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
-      trainLayer: null, trainTimer: null,
+      trainLayer: null, trainTimer: null, lineLayer: null, linePolys: [],
     })
     this._initMap()
 
@@ -294,6 +375,15 @@ export default defineComponent({
     })
     _p.get(this)!.bridgeControls = controls
     controls.startLocation()
+
+    // Load the line geometry and draw the route ribbons (always visible).
+    try {
+      await wmataClient.loadStandardRoutes()
+      this._drawLines()
+    } catch (err) {
+      console.warn('Line geometry load failed:', err)
+    }
+
   },
 
   beforeUnmount() {
