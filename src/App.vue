@@ -45,6 +45,7 @@ import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
 import { wmataClient, bearingDeg } from './wmata'
 import type { Station, Train, PlacedTrain } from './wmata'
+import { lineIconUrl } from './lineIcons'
 import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
@@ -134,10 +135,8 @@ function trainIcon(line: string, bearing: number, geomBearing: number): L.DivIco
   return L.divIcon({ html, className: 'train-marker', iconSize: [TRAIN_SIZE, TRAIN_SIZE], iconAnchor: [c - ox, c - oy] })
 }
 
-// Tap-a-train popup: line badge → destination, car count, train number.
+// Tap-a-train popup: line icon → destination, car count, train number.
 function trainPopupHtml(t: PlacedTrain): string {
-  const color = LINE_COLORS[t.line] ?? '#888'
-  const txt = t.line === 'YL' || t.line === 'SV' ? '#000' : '#fff'
   const dest = t.destination
     ? wmataClient.getStationByCode(t.destination)?.name ?? t.destination
     : 'No Passenger'
@@ -146,7 +145,7 @@ function trainPopupHtml(t: PlacedTrain): string {
     .join(' · ')
   return (
     `<div class="train-popup">` +
-    `<div class="tp-head"><span class="tp-badge" style="background:${color};color:${txt}">${t.line}</span>` +
+    `<div class="tp-head"><img class="tp-icon" src="${lineIconUrl(t.line)}" alt="${t.line}" />` +
     `<span class="tp-dest">${dest}</span></div>` +
     (meta ? `<div class="tp-meta">${meta}</div>` : '') +
     `</div>`
@@ -629,16 +628,11 @@ body,
   font-weight: 700;
   color: #fff;
 }
-.train-popup .tp-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 26px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 11px;
-  font-size: 12px;
-  font-weight: 800;
+.train-popup .tp-icon {
+  width: 26px;
+  height: 26px;
+  display: block;
+  flex-shrink: 0;
 }
 .train-popup .tp-meta {
   margin-top: 4px;

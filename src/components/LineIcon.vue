@@ -4,22 +4,7 @@
 
 <script lang="ts">
 import { defineComponent } from 'vue'
-import Red from '../assets/Line_Red.svg'
-import Blue from '../assets/Line_Blue.svg'
-import Orange from '../assets/Line_Orange.svg'
-import Silver from '../assets/Line_Silver.svg'
-import Green from '../assets/Line_Green.svg'
-import Yellow from '../assets/Line_Yellow.svg'
-import NoPassenger from '../assets/Line_No Passenger.svg'
-
-const LINE_SVG: Record<string, string> = {
-  RD: Red,
-  BL: Blue,
-  OR: Orange,
-  SV: Silver,
-  GR: Green,
-  YL: Yellow,
-}
+import { lineIconUrl } from '../lineIcons'
 
 export default defineComponent({
   name: 'LineIcon',
@@ -28,9 +13,7 @@ export default defineComponent({
   },
   computed: {
     src(): string {
-      // Out-of-service / no-line trains (e.g. "No Passenger") fall back to the
-      // slash glyph.
-      return LINE_SVG[this.line?.toUpperCase()] ?? NoPassenger
+      return lineIconUrl(this.line)
     },
     alt(): string {
       return this.line || 'No Passenger'
