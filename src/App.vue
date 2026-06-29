@@ -6,18 +6,6 @@
       <TrainList :trains="trains" />
       <div class="status-bar">{{ statusText }}</div>
     </aside>
-
-    <div v-if="showLocationPrompt" class="location-overlay">
-      <div class="location-card">
-        <div class="location-card-title">Location Access</div>
-        <p class="location-card-body">
-          MetroTracker needs your location to find the nearest Metro station.
-        </p>
-        <button class="location-card-btn" @click="grantLocationAccess">
-          Allow Location Access
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -63,7 +51,6 @@ export default defineComponent({
       userLon: null as number | null,
       isPinned: false,
       statusText: 'Starting…',
-      showLocationPrompt: false,
     }
   },
 
@@ -87,32 +74,6 @@ export default defineComponent({
     unpin() {
       this.isPinned = false
       _p.get(this)?.bridgeControls?.unpin()
-    },
-
-    async _checkAndStartLocation() {
-      let needsPrompt = true
-      try {
-        const perm = await navigator.permissions.query({ name: 'geolocation' })
-        if (perm.state === 'granted') {
-          needsPrompt = false
-        } else if (perm.state === 'denied') {
-          this.statusText = 'Location denied — tap a station on the map to pin it manually'
-          return
-        }
-      } catch {
-        // Permissions API not available in this WebView — fall through to prompt
-      }
-
-      if (needsPrompt) {
-        this.showLocationPrompt = true
-      } else {
-        _p.get(this)!.bridgeControls!.startLocation()
-      }
-    },
-
-    grantLocationAccess() {
-      this.showLocationPrompt = false
-      _p.get(this)?.bridgeControls?.startLocation()
     },
 
     pinStation(code: string) {
@@ -190,15 +151,13 @@ export default defineComponent({
       onGpsPositionUpdated(lat, lon) {
         self.userLat = lat
         self.userLon = lon
-        // Location is clearly working now (data arrived via the Even Hub SDK,
-        // independent of the browser permission), so dismiss the access prompt.
-        self.showLocationPrompt = false
       },
       onStatusChanged(text) {
         self.statusText = text
       },
       onSplashTap() {
-        void self._checkAndStartLocation()
+        // Fallback: ensure SDK location is running (idempotent — guarded by _running).
+        _p.get(self)?.bridgeControls?.startLocation()
       },
       getIsPinned() {
         return self.isPinned
@@ -208,7 +167,9 @@ export default defineComponent({
       },
     })
     _p.get(this)!.bridgeControls = controls
-    await this._checkAndStartLocation()
+    // Location is delivered by the Even Hub SDK, which prompts for its own OS
+    // permission, so start it directly — no browser-permission gate or overlay.
+    controls.startLocation()
   },
 
   beforeUnmount() {
@@ -278,49 +239,5 @@ body,
   border-top: 1px solid #1a1a1a;
   background: #080808;
   flex-shrink: 0;
-}
-.location-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.location-card {
-  background: #111;
-  border: 1px solid rgba(17, 85, 238, 0.35);
-  border-radius: 12px;
-  padding: 28px 24px;
-  max-width: 300px;
-  width: 90%;
-  text-align: center;
-}
-.location-card-title {
-  font-size: 17px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  color: #eee;
-}
-.location-card-body {
-  font-size: 13px;
-  color: #888;
-  line-height: 1.5;
-  margin-bottom: 20px;
-}
-.location-card-btn {
-  background: #1155ee;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 11px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-}
-.location-card-btn:active {
-  background: #0e44cc;
 }
 </style>
