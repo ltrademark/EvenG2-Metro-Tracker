@@ -7,7 +7,7 @@ Real-time DC Metro arrival board for Even Realities G2 smart glasses. The glasse
 ## How it works
 
 - **Glasses display** — up to 5 upcoming trains for the nearest station, auto-refreshing every 30 seconds
-- **Phone map** — OpenStreetMap with WMATA station markers; tap any station to pin it manually
+- **Phone map** — OpenStreetMap with Metro station markers; tap any station to pin it manually
 - **Auto-location** — uses phone GPS to detect the nearest station; falls back gracefully if GPS is unavailable
 - **IMU gestures** — head-up gesture triggers a manual refresh on hardware (not available in simulator)
 
