@@ -35,7 +35,7 @@ export interface PlacedTrain {
   line: string
   lat: number
   lon: number
-  bearing: number // degrees, direction of travel
+  geomBearing: number // line geometry direction (increasing seq) — for ribbon offset
   direction: number // WMATA DirectionNum (1 or 2)
   destination: string | null
 }
@@ -79,7 +79,7 @@ interface StandardRouteRaw {
 }
 
 // Initial bearing from point A to point B, in degrees (0 = north).
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (d: number) => (d * Math.PI) / 180
   const dLon = toRad(lon2 - lon1)
   const y = Math.sin(dLon) * Math.cos(toRad(lat2))
@@ -375,12 +375,14 @@ export class WmataClient {
       lat = prev.lat + (next.lat - prev.lat) * f
       lon = prev.lon + (next.lon - prev.lon) * f
     }
+    // Geometry direction = increasing sequence (matches how the line is drawn).
+    // Travel direction is derived from movement between polls on the UI side.
     return {
       trainId: t.trainId,
       line: t.lineCode!,
       lat,
       lon,
-      bearing: bearingDeg(prev.lat, prev.lon, next.lat, next.lon),
+      geomBearing: bearingDeg(prev.lat, prev.lon, next.lat, next.lon),
       direction: t.directionNum,
       destination: t.destinationStationCode,
     }

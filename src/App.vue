@@ -40,7 +40,7 @@ import { defineComponent } from 'vue'
 import * as L from 'leaflet'
 import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
-import { wmataClient } from './wmata'
+import { wmataClient, bearingDeg } from './wmata'
 import type { Station, Train } from './wmata'
 import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
@@ -101,20 +101,25 @@ function offsetLatLngs(map: L.Map, latlngs: L.LatLng[], px: number): L.LatLng[] 
   return out
 }
 
-// Live-train marker: the directional train SVG (dir 1/2), recolored to its
-// line and rotated to its heading, shifted onto its line's ribbon.
+// Live-train marker: train SVG recolored to its line, rotated so its arrow
+// leads along travel, and shifted onto its line's ribbon.
+//   bearing      = travel direction (drives the arrow rotation)
+//   geomBearing  = line geometry direction (drives the ribbon-side offset)
 const TRAIN_SIZE = 26
-function trainIcon(line: string, bearing: number, direction: number): L.DivIcon {
+function trainIcon(line: string, bearing: number, geomBearing: number): L.DivIcon {
   const color = LINE_COLORS[line] ?? '#888'
-  const svg = (direction === 2 ? dir2Raw : dir1Raw)
+  // Pick the mirror whose arrow side matches travel (E-pointing dir 1 for
+  // eastward travel, W-pointing dir 2 for westward) so same-direction trains
+  // look identical, then rotate so the arrow points exactly along travel.
+  const westward = Math.sin((bearing * Math.PI) / 180) < 0
+  const svg = (westward ? dir2Raw : dir1Raw)
     .replace('fill="white"', `fill="${color}"`)
     .replace('width="50" height="50"', `width="${TRAIN_SIZE}" height="${TRAIN_SIZE}"`)
-  // The SVG's arrow nub points out the side (E for dir 1, W for dir 2), so
-  // rotate an extra ∓90° to make the arrow — not the icon's top — lead.
-  const rot = bearing + (direction === 2 ? 90 : -90)
+  const rot = bearing - (westward ? 270 : 90)
+  // Offset onto the ribbon follows the line's geometry direction, not travel.
   const off = offsetPx(line)
-  const rad = (bearing * Math.PI) / 180
-  const ox = Math.cos(rad) * off // offset stays perpendicular to actual heading
+  const rad = (geomBearing * Math.PI) / 180
+  const ox = Math.cos(rad) * off
   const oy = Math.sin(rad) * off
   const c = TRAIN_SIZE / 2
   const html = `<div class="train-arrow" style="transform:rotate(${rot}deg)">${svg}</div>`
@@ -131,6 +136,7 @@ type Private = {
   programmatic: boolean
   trainLayer: L.LayerGroup | null
   trainTimer: ReturnType<typeof setInterval> | null
+  trainState: Map<string, { lat: number; lon: number; bearing: number }>
   lineLayer: L.LayerGroup | null
   linePolys: { poly: L.Polyline; center: L.LatLng[]; offset: number }[]
 }
@@ -221,6 +227,7 @@ export default defineComponent({
       if (!p) return
       if (p.trainTimer) { clearInterval(p.trainTimer); p.trainTimer = null }
       p.trainLayer?.clearLayers()
+      p.trainState.clear()
     },
 
     async _pollTrains() {
@@ -229,11 +236,25 @@ export default defineComponent({
       try {
         const trains = await wmataClient.fetchTrainPositions()
         const placed = wmataClient.placeTrains(trains)
+        const state = p.trainState
+        const seen = new Set<string>()
         p.trainLayer.clearLayers()
         for (const t of placed) {
-          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, t.bearing, t.direction), interactive: false })
+          seen.add(t.trainId)
+          // Travel direction comes from how the train actually moved since the
+          // last poll (reliable); fall back to geometry on first sight, and
+          // keep the last heading while dwelling at a station.
+          const prev = state.get(t.trainId)
+          let bearing = t.geomBearing
+          if (prev) {
+            const moved = Math.hypot(t.lat - prev.lat, t.lon - prev.lon)
+            bearing = moved > 1e-4 ? bearingDeg(prev.lat, prev.lon, t.lat, t.lon) : prev.bearing
+          }
+          state.set(t.trainId, { lat: t.lat, lon: t.lon, bearing })
+          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, bearing, t.geomBearing), interactive: false })
             .addTo(p.trainLayer)
         }
+        for (const id of [...state.keys()]) if (!seen.has(id)) state.delete(id)
       } catch (err) {
         console.warn('TrainPositions fetch failed:', err)
       }
@@ -359,7 +380,7 @@ export default defineComponent({
     _p.set(this, {
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
-      trainLayer: null, trainTimer: null, lineLayer: null, linePolys: [],
+      trainLayer: null, trainTimer: null, trainState: new Map(), lineLayer: null, linePolys: [],
     })
     this._initMap()
 
