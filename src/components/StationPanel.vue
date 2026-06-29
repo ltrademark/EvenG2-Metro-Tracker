@@ -9,7 +9,9 @@
         </div>
         <div v-if="showDistance" class="dist">{{ distanceMi }} mi away</div>
       </header>
-      <TrainList :trains="trains" />
+      <div class="list-scroll">
+        <TrainList :trains="trains" />
+      </div>
     </template>
 
     <div v-else class="empty">
@@ -58,14 +60,23 @@ export default defineComponent({
 .panel {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: #0a0a0a;
-  -webkit-overflow-scrolling: touch;
 }
 .panel-head {
+  flex-shrink: 0;
   text-align: center;
   padding: 18px 20px 16px;
   border-bottom: 1px solid #161616;
+  background: #0a0a0a;
+}
+.list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .kicker {
   font-size: 13px;
@@ -96,7 +107,7 @@ export default defineComponent({
   margin-top: 6px;
 }
 .empty {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;

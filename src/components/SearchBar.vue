@@ -53,11 +53,22 @@ export default defineComponent({
   computed: {
     results(): Station[] {
       const q = this.query.trim().toLowerCase()
-      const list = q
+      const matched = q
         ? this.stations.filter(s => s.name.toLowerCase().includes(q))
-        : [...this.stations]
+        : this.stations
+      // Transfer stations appear once per platform code (same name) — collapse
+      // them into a single result with the union of their lines.
+      const byName = new Map<string, Station>()
+      for (const s of matched) {
+        const ex = byName.get(s.name)
+        if (ex) {
+          for (const ln of s.lines) if (!ex.lines.includes(ln)) ex.lines.push(ln)
+        } else {
+          byName.set(s.name, { ...s, lines: [...s.lines] })
+        }
+      }
       // Prioritise prefix matches, then alphabetical.
-      return list
+      return [...byName.values()]
         .sort((a, b) => {
           const ap = a.name.toLowerCase().startsWith(q) ? 0 : 1
           const bp = b.name.toLowerCase().startsWith(q) ? 0 : 1
@@ -136,8 +147,8 @@ export default defineComponent({
   flex-shrink: 0;
 }
 .search-chevron {
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   opacity: 0.6;
 }
 .results {
