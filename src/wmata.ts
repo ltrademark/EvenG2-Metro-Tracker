@@ -36,6 +36,7 @@ export interface PlacedTrain {
   lat: number
   lon: number
   bearing: number // degrees, direction of travel
+  direction: number // WMATA DirectionNum (1 or 2)
   destination: string | null
 }
 
@@ -380,6 +381,7 @@ export class WmataClient {
       lat,
       lon,
       bearing: bearingDeg(prev.lat, prev.lon, next.lat, next.lon),
+      direction: t.directionNum,
       destination: t.destinationStationCode,
     }
   }

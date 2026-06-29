@@ -3,7 +3,7 @@
     <div class="map-wrap">
       <div ref="mapEl" class="map"></div>
 
-      <SearchBar :stations="stations" @select="onSelectStation" />
+      <SearchBar v-if="!liveView" :stations="stations" @select="onSelectStation" />
 
       <!-- Version / info button -->
       <button class="info-btn" @click="showInfo = true">
@@ -14,12 +14,12 @@
       <!-- Live View toggle (also the way back to the normal view) -->
       <button class="live-btn" :class="{ active: liveView }" @click="toggleLive">
         <span class="live-dot"></span>
-        <span>Live View</span>
+        <span>{{ liveView ? 'Exit Live View' : 'Live View' }}</span>
       </button>
 
       <!-- Recenter-on-location button -->
       <button class="loc-btn" @click="recenter" aria-label="My location">
-        <img :src="locIcon" class="loc-ic" alt="" />
+        <span class="loc-ic" v-html="locIconSvg"></span>
       </button>
     </div>
 
@@ -47,8 +47,10 @@ import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
 import InfoModal from './components/InfoModal.vue'
 import icQuery from './assets/query icon.svg'
-import locOff from './assets/location-state_off.svg'
-import locOn from './assets/location-state_on.svg'
+import locOffRaw from './assets/location-state_off.svg?raw'
+import locOnRaw from './assets/location-state_on.svg?raw'
+import dir1Raw from './assets/Train_dir_1.svg?raw'
+import dir2Raw from './assets/Train_dir_2.svg?raw'
 import pinUser from './assets/Pindrop.svg'
 
 const LINE_COLORS: Record<string, string> = {
@@ -99,20 +101,21 @@ function offsetLatLngs(map: L.Map, latlngs: L.LatLng[], px: number): L.LatLng[] 
   return out
 }
 
-// Placeholder live-train marker: a line-colored arrowhead rotated to its
-// heading, shifted onto its line's ribbon (same pixel offset as the line).
-function trainIcon(line: string, bearing: number): L.DivIcon {
+// Live-train marker: the directional train SVG (dir 1/2), recolored to its
+// line and rotated to its heading, shifted onto its line's ribbon.
+const TRAIN_SIZE = 26
+function trainIcon(line: string, bearing: number, direction: number): L.DivIcon {
   const color = LINE_COLORS[line] ?? '#888'
+  const svg = (direction === 2 ? dir2Raw : dir1Raw)
+    .replace('fill="white"', `fill="${color}"`)
+    .replace('width="50" height="50"', `width="${TRAIN_SIZE}" height="${TRAIN_SIZE}"`)
   const off = offsetPx(line)
   const rad = (bearing * Math.PI) / 180
   const ox = Math.cos(rad) * off // perpendicular to heading, matching offsetLatLngs
   const oy = Math.sin(rad) * off
-  const html =
-    `<div class="train-arrow" style="transform:rotate(${bearing}deg)">` +
-    `<svg viewBox="0 0 20 20" width="20" height="20">` +
-    `<path d="M10 1 L17 18 L10 14 L3 18 Z" fill="${color}" stroke="#0a0a0a" stroke-width="1.2"/>` +
-    `</svg></div>`
-  return L.divIcon({ html, className: 'train-marker', iconSize: [20, 20], iconAnchor: [10 - ox, 10 - oy] })
+  const c = TRAIN_SIZE / 2
+  const html = `<div class="train-arrow" style="transform:rotate(${bearing}deg)">${svg}</div>`
+  return L.divIcon({ html, className: 'train-marker', iconSize: [TRAIN_SIZE, TRAIN_SIZE], iconAnchor: [c - ox, c - oy] })
 }
 
 // Non-reactive Leaflet/bridge state keyed by component instance
@@ -147,15 +150,20 @@ export default defineComponent({
       centeredOnUser: false,
       showInfo: false,
       liveView: false,
-      locOff,
-      locOn,
       icQuery,
     }
   },
 
   computed: {
-    locIcon(): string {
-      return this.userLat !== null && this.centeredOnUser ? this.locOn : this.locOff
+    // Location button: off/on icon × white(no GPS)/blue(GPS) tint.
+    //   no GPS        → off + white
+    //   GPS, panned   → off + blue
+    //   GPS, centered → on  + blue
+    locIconSvg(): string {
+      const haveGps = this.userLat !== null
+      const centered = haveGps && this.centeredOnUser
+      const color = haveGps ? '#1155ee' : '#ffffff'
+      return (centered ? locOnRaw : locOffRaw).replace(/fill="white"/g, `fill="${color}"`)
     },
   },
 
@@ -220,7 +228,7 @@ export default defineComponent({
         const placed = wmataClient.placeTrains(trains)
         p.trainLayer.clearLayers()
         for (const t of placed) {
-          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, t.bearing), interactive: false })
+          L.marker([t.lat, t.lon], { icon: trainIcon(t.line, t.bearing, t.direction), interactive: false })
             .addTo(p.trainLayer)
         }
       } catch (err) {
@@ -496,9 +504,12 @@ body,
   background: #fff;
 }
 .train-arrow {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   transform-origin: center;
+}
+.train-arrow svg {
+  display: block;
 }
 
 /* Location button */
@@ -518,7 +529,13 @@ body,
   cursor: pointer;
 }
 .loc-ic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.loc-ic svg {
   width: 28px;
   height: 28px;
+  display: block;
 }
 </style>
