@@ -212,6 +212,7 @@ export default defineComponent({
         self.currentStation = station
         self.currentDistKm = distKm
       },
+      onDistanceChanged(distKm) { self.currentDistKm = distKm },
       onPredictionsUpdated(trains) { self.trains = trains },
       onGpsPositionUpdated(lat, lon) {
         self.userLat = lat

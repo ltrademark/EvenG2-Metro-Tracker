@@ -9,6 +9,7 @@ import { ImuController } from './imu'
 export interface AppBridgeAdapter {
   setStations(stations: Station[]): void
   onStationChanged(station: Station, distKm: number): void
+  onDistanceChanged(distKm: number): void
   onPredictionsUpdated(trains: Train[]): void
   onGpsPositionUpdated(lat: number, lon: number): void
   onStatusChanged(text: string): void
@@ -149,6 +150,12 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       userLat = lat
       userLon = lon
       adapter.onGpsPositionUpdated(lat, lon)
+      // Keep the distance to the focused station (current or pinned) live as
+      // the user moves, independent of which station is shown.
+      if (currentStation) {
+        currentDistKm = haversineKm(lat, lon, currentStation.lat, currentStation.lon)
+        adapter.onDistanceChanged(currentDistKm)
+      }
     },
   )
 
@@ -303,9 +310,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       isPinned = true            // manual pin → "location off" icon
       viewedStation = null
       currentStation = station
-      currentDistKm = 0
+      // Distance from the user's GPS position to the selected station (0 when
+      // there's no fix yet — the web side hides it without GPS).
+      currentDistKm = (userLat !== 0 || userLon !== 0)
+        ? haversineKm(userLat, userLon, station.lat, station.lon)
+        : 0
       nearby = nearbyStations(stations, station.lat, station.lon, station.code)
-      adapter.onStationChanged(station, 0)
+      adapter.onStationChanged(station, currentDistKm)
       persistStation()
       void doRefresh()  // refresh current view; don't force timetable
     },
