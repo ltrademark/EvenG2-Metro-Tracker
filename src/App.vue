@@ -58,6 +58,14 @@ export default defineComponent({
     stations(newStations: Station[]) {
       if (newStations.length > 0) this._placeStationMarkers()
     },
+    currentStation(station: Station | null) {
+      // Before the first GPS fix, center on the known/persisted station so the
+      // user sees their area immediately instead of the DC-wide default view.
+      const p = _p.get(this)
+      if (station && p?.map && !p.hasZoomed) {
+        p.map.setView([station.lat, station.lon], 15)
+      }
+    },
     userLat() {
       if (this.userLat !== null && this.userLon !== null) {
         this._moveUserDot(this.userLat, this.userLon)
