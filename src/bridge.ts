@@ -47,7 +47,7 @@ function nearbyStations(
   lat: number,
   lon: number,
   excludeCode: string,
-  limit = 3,
+  limit = 7,
 ): Station[] {
   if (!lat && !lon) return []
   return stations
@@ -90,10 +90,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     adapter.onPredictionsUpdated(trains)
 
     const view = glassesDisplay.view
+    const locationOn = !isPinned
     if (goToTimetable || view === 'timetable') {
-      await glassesDisplay.showTimetable(station, trains, currentDistKm)
+      await glassesDisplay.showTimetable(station, trains, currentDistKm, nearby, locationOn)
     } else {
-      await glassesDisplay.showStations(station, nearby, currentDistKm)
+      await glassesDisplay.showStations(station, nearby, currentDistKm, locationOn)
     }
 
     const timeStr = new Date().toLocaleTimeString('en-US', {
@@ -218,7 +219,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
           void glassesDisplay.refreshTimetable()
         } else if (isDoublePress) {
           if (currentStation) {
-            void glassesDisplay.showStations(currentStation, nearby, currentDistKm)
+            void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned)
           }
         }
         break
