@@ -174,7 +174,7 @@ function stationItems(current: Station, nearby: Station[], markedCode: string): 
   if (nearby.length > 0) {
     for (const s of nearby.slice(0, MAX_STATIONS - 1)) items.push(fmt(s))
   } else {
-    items.push(`${PREFIX_NEARBY} Searching…`)
+    items.push(`${PREFIX_NEARBY} Searching...`)
   }
   return items
 }
@@ -224,41 +224,55 @@ export class GlassesDisplay {
 
   // ── Splash ─────────────────────────────────────────────────────────────
   //
-  //   ID 1 — logo image        centered horizontally
-  //   ID 2 — "v0.3.1"          top-right
-  //   ID 3 — "METRO TRACKER"   below logo
-  //   ID 4 — "Tap to start"    CTA, isEventCapture
+  //   ID 1 — logo image            centered horizontally
+  //   ID 2 — "v0.3.1"              top-right
+  //   ID 3 — "METRO TRACKER"       below logo
+  //   ID 4 — "Waiting for location…"  CTA (splash auto-dismisses on GPS lock)
+
+  private _splashText(): TextContainerProperty[] {
+    const cta = 'Waiting for location...'
+    const ctaW = getTextWidth(cta)
+    const titleW = getTextWidth('METRO TRACKER')
+    return [
+      txt(2, 'ver',   509, 6, 57, LH, 'v0.3.1'),
+      txt(3, 'title', Math.round((W - titleW) / 2), 172, titleW + 4, LH, 'METRO TRACKER'),
+      txt(4, 'cta',   Math.round((W - ctaW) / 2),   218, ctaW + 4,   LH, cta, true),
+    ]
+  }
 
   async startup(): Promise<boolean> {
     const logoX = Math.round((W - LOGO_W) / 2)
 
-    // Pre-fetch before creating the container so updateImageRawData can be called
-    // immediately after — avoids the async gap where hardware firmware may reject
-    // a late image push to a startup container.
+    // createStartUpPageContainer is required before any hardware feature, but
+    // hardware does NOT render images on the startup container. We still declare
+    // the logo container here (keeps IDs 1–4 stable) — it just stays blank…
+    const result = await this._bridge.createStartUpPageContainer({
+      containerTotalNum: 4,
+      imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
+      textObject: this._splashText(),
+    })
+    this._view = 'splash'
+
+    // …then rebuild the same page with the logo. Rebuild-based images DO render
+    // on hardware (same path as the location icon), so this is what makes the
+    // logo appear on real glasses.
     let logoBytes: number[] | null = null
     try {
       logoBytes = await this._fetchImg(LOGO_URL)
     } catch (err) {
       console.warn('Logo prefetch failed:', err)
     }
-
-    const result = await this._bridge.createStartUpPageContainer({
-      containerTotalNum: 4,
-      imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
-      textObject: [
-        txt(2, 'ver',   509,   6,   57, LH, 'v0.3.1'),
-        txt(3, 'title', 216, 172,  145, LH, 'METRO TRACKER'),
-        txt(4, 'cta',   239, 218,   99, LH, 'Tap to start', true),
-      ],
-    })
-    this._view = 'splash'
-
-    if (logoBytes) {
-      try {
+    try {
+      await this._bridge.rebuildPageContainer({
+        containerTotalNum: 4,
+        imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
+        textObject: this._splashText(),
+      })
+      if (logoBytes) {
         await this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: logoBytes })
-      } catch (err) {
-        console.warn('Logo update failed:', err)
       }
+    } catch (err) {
+      console.warn('Splash logo render failed:', err)
     }
 
     return result === 0

@@ -275,7 +275,8 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     pinStation(code: string) {
       const station = wmataClient.getStationByCode(code)
       if (!station) return
-      isPinned = true
+      isPinned = true            // manual pin → "location off" icon
+      viewedStation = null
       currentStation = station
       currentDistKm = 0
       nearby = nearbyStations(stations, station.lat, station.lon, station.code)
@@ -283,7 +284,25 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       void doRefresh()  // refresh current view; don't force timetable
     },
     unpin() {
-      isPinned = false
+      isPinned = false           // "Auto" → re-lock to GPS, "location on" icon
+      viewedStation = null
+      // Snap back to the GPS-nearest station so the glasses reflect the change
+      // immediately instead of waiting for the next location update.
+      if (userLat !== 0 || userLon !== 0) {
+        let nearest: Station | null = null
+        let best = Infinity
+        for (const s of stations) {
+          const d = haversineKm(userLat, userLon, s.lat, s.lon)
+          if (d < best) { best = d; nearest = s }
+        }
+        if (nearest) {
+          currentStation = nearest
+          currentDistKm = best
+          nearby = nearbyStations(stations, userLat, userLon, nearest.code)
+          adapter.onStationChanged(nearest, best)
+        }
+      }
+      void doRefresh()
     },
     async forceRefresh() {
       await doRefresh()
