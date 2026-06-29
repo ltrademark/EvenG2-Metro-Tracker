@@ -80,21 +80,26 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   let userLon = 0
   let nearby: Station[] = []
   let isPinned = false
+  let viewedStation: Station | null = null   // station whose board is shown in the timetable
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
   async function doRefresh(goToTimetable = false, stationOverride?: Station) {
-    const station = stationOverride ?? currentStation
-    if (!station) return
+    if (!currentStation) return
+
+    // In the timetable we display the station the user selected, and keep
+    // displaying it across auto-refreshes — not the home station.
+    const inTimetable = goToTimetable || glassesDisplay.view === 'timetable'
+    if (stationOverride) viewedStation = stationOverride
+    const station = inTimetable ? (viewedStation ?? currentStation) : currentStation
 
     const trains = await wmataClient.fetchPredictions(station)
     adapter.onPredictionsUpdated(trains)
 
-    const view = glassesDisplay.view
     const locationOn = !isPinned
-    if (goToTimetable || view === 'timetable') {
-      await glassesDisplay.showTimetable(station, trains, currentDistKm, nearby, locationOn)
+    if (inTimetable) {
+      await glassesDisplay.showTimetable(station, trains, currentDistKm, currentStation, nearby, locationOn)
     } else {
-      await glassesDisplay.showStations(station, nearby, currentDistKm, locationOn)
+      await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn)
     }
 
     const timeStr = new Date().toLocaleTimeString('en-US', {
@@ -219,6 +224,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
           void glassesDisplay.refreshTimetable()
         } else if (isDoublePress) {
           if (currentStation) {
+            viewedStation = null
             void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned)
           }
         }

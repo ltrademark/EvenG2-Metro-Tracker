@@ -160,15 +160,23 @@ const SWITCH_BOX_W = SWITCH_W + 12
 const SWITCH_X     = PANEL_IX + PANEL_IW - SWITCH_BOX_W
 const DEST_HDR_W   = PANEL_IW - SWITCH_BOX_W - 8   // destination header container width
 
-function stationItems(currentStation: Station, nearby: Station[]): string[] {
+// Frozen-order list: [current, ...nearby]. The order never changes between the
+// list view and the timetable view — only the `>` marker moves to whichever
+// station's board is being viewed, so names never jump position.
+// Station names keep their natural Title Case (narrower than ALL CAPS).
+function stationItems(current: Station, nearby: Station[], markedCode: string): string[] {
   const nameW = LIST_NAME_W - PREFIX_W
-  const trunc = (name: string) => pxTruncate(name.toUpperCase(), nameW)
-  return [
-    `${PREFIX_CURRENT} ${trunc(currentStation.name)}`,
-    ...(nearby.length > 0
-      ? nearby.slice(0, MAX_STATIONS - 1).map(s => `${PREFIX_NEARBY} ${trunc(s.name)}`)
-      : [`${PREFIX_NEARBY} Searching…`]),
-  ]
+  const fmt = (s: Station) => {
+    const prefix = s.code === markedCode ? PREFIX_CURRENT : PREFIX_NEARBY
+    return `${prefix} ${pxTruncate(s.name, nameW)}`
+  }
+  const items = [fmt(current)]
+  if (nearby.length > 0) {
+    for (const s of nearby.slice(0, MAX_STATIONS - 1)) items.push(fmt(s))
+  } else {
+    items.push(`${PREFIX_NEARBY} Searching…`)
+  }
+  return items
 }
 
 export class GlassesDisplay {
@@ -177,6 +185,7 @@ export class GlassesDisplay {
   private _view: GlassesView = 'splash'
   private _trainGroup: '1' | '2' = '1'
   private _timetableStation: Station | null = null
+  private _timetableCurrentStation: Station | null = null
   private _timetableNearby: Station[] = []
   private _timetableTrains: Train[] = []
   private _timetableDistKm = 0
@@ -270,7 +279,7 @@ export class GlassesDisplay {
     if (this._rendering) return
     this._rendering = true
 
-    const items = stationItems(currentStation, nearbyStations)
+    const items = stationItems(currentStation, nearbyStations, currentStation.code)
     const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
     const status = statusStr(distKm)
@@ -317,9 +326,10 @@ export class GlassesDisplay {
   //   y=84:  arrivals list (4 rows × 40px pitch = 160, ends ~y=250)
 
   async showTimetable(
-    station: Station,
+    station: Station,            // the viewed station (board shown on the right)
     trains: Train[],
     distKm: number,
+    currentStation: Station,     // home station — anchors the frozen left list
     nearbyStations: Station[] = [],
     locationOn = true,
   ): Promise<void> {
@@ -327,6 +337,7 @@ export class GlassesDisplay {
     this._rendering = true
 
     this._timetableStation = station
+    this._timetableCurrentStation = currentStation
     this._timetableNearby = nearbyStations
     this._timetableTrains = trains
     this._timetableDistKm = distKm
@@ -344,7 +355,9 @@ export class GlassesDisplay {
         ? filtered.map(fmtTrainRow)
         : ['No trains']
 
-    const items = stationItems(station, nearbyStations)
+    // Frozen list: same [current, ...nearby] order as the landing view;
+    // the `>` marker just moves to the station whose board is shown.
+    const items = stationItems(currentStation, nearbyStations, station.code)
     const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
     const status = statusStr(distKm)
@@ -367,7 +380,8 @@ export class GlassesDisplay {
           // Left list: own border, same x/width as landing view → no shift.
           lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, false, LIST_BW, LIST_RADIUS),
           // Arrivals: shifted 6px left to offset the SDK's implicit per-item inset.
-          lst(7, 'trains', PANEL_IX - 6, 84, PANEL_IW + 6, MAX_TRAINS * ROW_PITCH + 6, rows),
+          // Height sized to the row count so a single train isn't vertically centered.
+          lst(7, 'trains', PANEL_IX - 6, 84, PANEL_IW + 6, Math.min(rows.length, MAX_TRAINS) * ROW_PITCH + 6, rows),
         ],
       })
       await this._pushLocationIcon(9, locationOn)
@@ -389,6 +403,7 @@ export class GlassesDisplay {
       this._timetableStation,
       this._timetableTrains,
       this._timetableDistKm,
+      this._timetableCurrentStation ?? this._timetableStation,
       this._timetableNearby,
       this._timetableLocationOn,
     )
