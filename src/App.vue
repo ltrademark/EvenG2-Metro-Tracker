@@ -283,7 +283,7 @@ export default defineComponent({
         // Uniform white dot with a black ring — the colored ribbon carries the
         // line identity now.
         const marker = L.circleMarker([station.lat, station.lon], {
-          radius: 4,
+          radius: 6,
           color: '#000',
           fillColor: '#fff',
           fillOpacity: 1,
