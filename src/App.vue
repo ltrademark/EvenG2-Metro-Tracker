@@ -383,7 +383,6 @@ export default defineComponent({
     } catch (err) {
       console.warn('Line geometry load failed:', err)
     }
-
   },
 
   beforeUnmount() {
