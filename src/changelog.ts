@@ -5,13 +5,12 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry = {
-  version: '0.5.0',
+  version: '0.5.5',
   changes: [
-    'Redesigned phone app: single-column map with a live boarding-times panel',
-    'Search any station with line-aware autocomplete',
-    'Tap a station on the map or in search to view its board',
-    'Live GPS location pin with one-tap recenter',
-    'Station list now uses the official line badges',
-    'Added this app info & changelog screen',
+    'Live View: watch trains move across the map in real time',
+    'Metro lines drawn on the map — color-coded and side-by-side',
+    'Tap a train to see its destination, car count, and train number',
+    'Live positions refresh every 10s with an on-screen countdown',
+    'Distance now tracks the station you’re viewing, not just your home stop',
   ],
 }

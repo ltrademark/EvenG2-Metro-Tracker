@@ -228,7 +228,7 @@ export class GlassesDisplay {
   // ── Splash ─────────────────────────────────────────────────────────────
   //
   //   ID 1 — logo image            centered horizontally
-  //   ID 2 — version (e.g. "v0.5.0") top-left (left-anchored so it never overflows)
+  //   ID 2 — version (e.g. "v0.5.5") top-left (left-anchored so it never overflows)
   //   ID 3 — "METRO TRACKER"       below logo
   //   ID 4 — "Waiting for location…"  CTA (splash auto-dismisses on GPS lock)
 
