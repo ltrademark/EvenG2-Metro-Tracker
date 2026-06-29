@@ -113,6 +113,12 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     )
   }
 
+  // Persist the home station across sessions so returning users land on their
+  // board immediately instead of waiting on a launch screen.
+  function persistStation() {
+    if (currentStation) void bridge.setLocalStorage('lastStation', currentStation.code)
+  }
+
   function startTimer() {
     if (refreshTimer) clearInterval(refreshTimer)
     refreshTimer = setInterval(() => {
@@ -136,6 +142,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       currentDistKm = distKm
       nearby = nearbyStations(stations, userLat, userLon, station.code)
       adapter.onStationChanged(station, distKm)
+      persistStation()
       void doRefresh()
     },
     (lat, lon) => {
@@ -258,6 +265,24 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     console.warn('IMU not available (not supported in simulator)')
   }
 
+  // Returning users: restore the last station so the board appears immediately,
+  // before GPS locks. The WebView already remembers the location permission, so
+  // location resumes without a prompt and refines this to the nearest station.
+  if (!currentStation) {
+    try {
+      const lastCode = await bridge.getLocalStorage('lastStation')
+      if (lastCode) {
+        const station = wmataClient.getStationByCode(lastCode)
+        if (station) {
+          currentStation = station
+          nearby = nearbyStations(stations, station.lat, station.lon, station.code)
+          adapter.onStationChanged(station, 0)
+          void doRefresh()
+        }
+      }
+    } catch { /* nothing persisted yet */ }
+  }
+
   if (import.meta.env.DEV && !currentStation) {
     const devStation = wmataClient.getStationByCode('A01')
     if (devStation) {
@@ -281,6 +306,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       currentDistKm = 0
       nearby = nearbyStations(stations, station.lat, station.lon, station.code)
       adapter.onStationChanged(station, 0)
+      persistStation()
       void doRefresh()  // refresh current view; don't force timetable
     },
     unpin() {
@@ -302,6 +328,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
           adapter.onStationChanged(nearest, best)
         }
       }
+      persistStation()
       void doRefresh()
     },
     async forceRefresh() {
