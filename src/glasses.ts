@@ -35,7 +35,12 @@ const LIST_X      = 4
 const LIST_W      = 196
 const LIST_BW     = 2
 const LIST_RADIUS = 4
-const LIST_NAME_W = LIST_W - LIST_BW * 2 - ITEM_INSET - SAFE   // name truncation budget
+// Landing-view selection cursor. LIST_PAD insets the highlight from the panel's
+// left edge; itemWidth caps its width to keep a matching gap on the right — so
+// the cursor floats inside the panel with comfortable, symmetric padding.
+const LIST_PAD    = 6
+const LIST_ITEM_W = 180   // selection-border width (≈7px gap each side inside the panel)
+const LIST_NAME_W = LIST_W - LIST_BW * 2 - ITEM_INSET - SAFE - LIST_PAD * 2   // name truncation budget
 
 const ROW_PITCH    = 40   // measured G2 list item pitch (taller than text LH)
 const MAX_VISIBLE  = 5    // station rows that fit above the bottom status row
@@ -83,13 +88,16 @@ function lst(
   isEvent = false,
   borderWidth = 0,
   borderRadius = 0,
+  selectBorder = false,
+  padding = 0,
+  itemWidth = 0,
 ): ListContainerProperty {
   return {
     containerID: id, containerName: name,
     xPosition: x, yPosition: y, width: w, height: h,
     isEventCapture: isEvent ? 1 : 0,
-    borderWidth, borderColor: 15, borderRadius, paddingLength: 0,
-    itemContainer: { itemCount: items.length, itemName: items, itemWidth: 0, isItemSelectBorderEn: 0 },
+    borderWidth, borderColor: 15, borderRadius, paddingLength: padding,
+    itemContainer: { itemCount: items.length, itemName: items, itemWidth, isItemSelectBorderEn: selectBorder ? 1 : 0 },
   }
 }
 
@@ -150,10 +158,12 @@ function fmtTrainRow(train: Train): string {
 
 // ── Main display class ─────────────────────────────────────────────────────
 
-// > and - are both 10px wide — names stay left-aligned regardless of prefix
-const PREFIX_CURRENT = '>'
-const PREFIX_NEARBY  = '-'
-const PREFIX_W       = getTextWidth(`${PREFIX_CURRENT} `)
+// "> " marker for the selected station in the TIMETABLE only — it intentionally
+// shifts that row's text right for visual distinction. On the LANDING view no
+// row is marked (the native selection cursor shows focus instead), so names sit
+// flush-left and use the full row width.
+const MARK_PREFIX = '> '
+const MARK_W      = getTextWidth(MARK_PREFIX)
 
 // Direction switcher — its own small container at the panel's right edge, so it
 // can never wrap into the destination text. Single press toggles direction.
@@ -164,20 +174,24 @@ const SWITCH_X     = PANEL_IX + PANEL_IW - SWITCH_BOX_W
 const DEST_HDR_W   = PANEL_IW - SWITCH_BOX_W - 8   // destination header container width
 
 // Frozen-order list: [current, ...nearby]. The order never changes between the
-// list view and the timetable view — only the `>` marker moves to whichever
-// station's board is being viewed, so names never jump position.
+// list view and the timetable view. When `showMarker` is set (timetable), the
+// marked station is prefixed with "> " and its name budget is reduced by that
+// width so the shifted row can't overflow; every other row is flush-left at the
+// full width. On the landing view `showMarker` is false → no prefixes at all.
 // Station names keep their natural Title Case (narrower than ALL CAPS).
-function stationItems(current: Station, nearby: Station[], markedCode: string): string[] {
-  const nameW = LIST_NAME_W - PREFIX_W
+function stationItems(
+  current: Station, nearby: Station[], markedCode: string, showMarker: boolean,
+): string[] {
   const fmt = (s: Station) => {
-    const prefix = s.code === markedCode ? PREFIX_CURRENT : PREFIX_NEARBY
-    return `${prefix} ${pxTruncate(s.name, nameW)}`
+    const marked = showMarker && s.code === markedCode
+    const budget = marked ? LIST_NAME_W - MARK_W : LIST_NAME_W
+    return `${marked ? MARK_PREFIX : ''}${pxTruncate(s.name, budget)}`
   }
   const items = [fmt(current)]
   if (nearby.length > 0) {
     for (const s of nearby.slice(0, MAX_STATIONS - 1)) items.push(fmt(s))
   } else {
-    items.push(`${PREFIX_NEARBY} Searching...`)
+    items.push('Searching...')
   }
   return items
 }
@@ -193,6 +207,7 @@ export class GlassesDisplay {
   private _timetableTrains: Train[] = []
   private _timetableDistKm = 0
   private _timetableLocationOn = true
+  private _statusDistKm = 0
   private _imgCache = new Map<string, number[]>()
 
   constructor(bridge: EvenAppBridge) {
@@ -295,8 +310,9 @@ export class GlassesDisplay {
   ): Promise<void> {
     if (this._rendering) return
     this._rendering = true
+    this._statusDistKm = distKm
 
-    const items = stationItems(currentStation, nearbyStations, currentStation.code)
+    const items = stationItems(currentStation, nearbyStations, currentStation.code, false)
     const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
     const status = statusStr(distKm)
@@ -310,7 +326,8 @@ export class GlassesDisplay {
         textObject: [
           txt(2, 'clock', statusX, 258, statusW + 4, LH, status),
         ],
-        listObject: [lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, true, LIST_BW, LIST_RADIUS)],
+        // Landing list: near-full-width selection cursor (itemWidth), no marker.
+        listObject: [lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, true, LIST_BW, LIST_RADIUS, true, LIST_PAD, LIST_ITEM_W)],
       })
       await this._pushLocationIcon(3, locationOn)
     } catch (err) {
@@ -337,7 +354,7 @@ export class GlassesDisplay {
   //   ID 9 — location icon, bottom-left
   //
   // Vertical layout inside the panel (frame y=4, h=252):
-  //   y=18:  destination header / switcher
+  //   y=12:  destination header / switcher (centered above the divider)
   //   y=46:  divider
   //   y=54:  table column header
   //   y=84:  arrivals list (4 rows × 40px pitch = 160, ends ~y=250)
@@ -359,6 +376,7 @@ export class GlassesDisplay {
     this._timetableTrains = trains
     this._timetableDistKm = distKm
     this._timetableLocationOn = locationOn
+    this._statusDistKm = distKm
 
     const filtered = trains.filter(t => t.group === this._trainGroup).slice(0, MAX_TRAINS)
 
@@ -372,9 +390,19 @@ export class GlassesDisplay {
         ? filtered.map(fmtTrainRow)
         : ['No trains']
 
-    // Frozen list: same [current, ...nearby] order as the landing view;
-    // the `>` marker just moves to the station whose board is shown.
-    const items = stationItems(currentStation, nearbyStations, station.code)
+    // Same [current, ...nearby] order as the landing view, with the viewed
+    // station marked "> ". The list can't be programmatically scrolled, and a
+    // rebuild resets it to the top — so when the viewed station sits past the
+    // visible window we slice to a window that keeps it on screen (positioned
+    // as if scrolled down to it), instead of snapping back to the top.
+    const order = [currentStation, ...nearbyStations.slice(0, MAX_STATIONS - 1)]
+    const selIdx = Math.max(0, order.findIndex(s => s.code === station.code))
+    const allItems = stationItems(currentStation, nearbyStations, station.code, true)
+    let items = allItems
+    if (allItems.length > MAX_VISIBLE) {
+      const start = Math.max(0, Math.min(selIdx - (MAX_VISIBLE - 1), allItems.length - MAX_VISIBLE))
+      items = allItems.slice(start, start + MAX_VISIBLE)
+    }
     const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
     const status = statusStr(distKm)
@@ -387,15 +415,18 @@ export class GlassesDisplay {
         imageObject: [img(9, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
         textObject: [
           txt(2, 'frame',   PANEL_X,   4, PANEL_W,  252, '', false, PANEL_BW, 4),
-          txt(3, 'dir',     PANEL_IX, 18, DEST_HDR_W,  LH, dest, true),
-          txt(4, 'switch',  SWITCH_X, 18, SWITCH_BOX_W, LH, SWITCH_LABEL),
-          txt(5, 'divider', PANEL_IX, 46, PANEL_IW,     2, '', false, PANEL_BW),
+          txt(3, 'dir',     PANEL_IX, 12, DEST_HDR_W,  LH, dest, true),
+          txt(4, 'switch',  SWITCH_X, 12, SWITCH_BOX_W, LH, SWITCH_LABEL),
+          // Full-width rule: spans PANEL_X→PANEL_W so its ends meet the panel's
+          // left/right borders (not inset like the text columns).
+          txt(5, 'divider', PANEL_X,  46, PANEL_W,      2, '', false, PANEL_BW),
           txt(6, 'hdr',     PANEL_IX, 54, PANEL_IW,    LH, TABLE_HEADER),
           txt(8, 'clock',   statusX, 258, statusW + 4, LH, status),
         ],
         listObject: [
-          // Left list: own border, same x/width as landing view → no shift.
-          lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, false, LIST_BW, LIST_RADIUS),
+          // Left list: display-only (no selection border), but same padding as
+          // the landing view so the station names line up across both screens.
+          lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, false, LIST_BW, LIST_RADIUS, false, LIST_PAD),
           // Arrivals: shifted 6px left to offset the SDK's implicit per-item inset.
           // Height sized to the row count so a single train isn't vertically centered.
           lst(7, 'trains', PANEL_IX - 6, 84, PANEL_IW + 6, Math.min(rows.length, MAX_TRAINS) * ROW_PITCH + 6, rows),
@@ -426,15 +457,18 @@ export class GlassesDisplay {
     )
   }
 
-  // Clock is ID 2 in stations view, ID 8 in timetable view.
-  async updateClock(): Promise<void> {
+  // In-place status (distance + clock) update — no rebuild, so the native list
+  // selection cursor on the landing view is left untouched. Clock is ID 2 in
+  // the stations view, ID 8 in the timetable view.
+  async updateStatus(distKm: number = this._statusDistKm): Promise<void> {
     if (this._view === 'splash') return
+    this._statusDistKm = distKm
     const id = this._view === 'stations' ? 2 : 8
     try {
       await this._bridge.textContainerUpgrade({
         containerID: id,
         containerName: 'clock',
-        content: statusStr(this._timetableDistKm),
+        content: statusStr(distKm),
         contentOffset: 0,
         contentLength: 0,
       })

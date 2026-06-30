@@ -324,6 +324,41 @@ export class WmataClient {
     return anchors.map(a => ({ lat: a.lat, lon: a.lon }))
   }
 
+  // Codes of single-platform junction stations — where the lines serving a stop
+  // branch onto different track (Rosslyn, Pentagon, Stadium-Armory, East Falls
+  // Church, King St, …). Detected from route topology: at a junction the lines
+  // through the station don't all share the same neighbours. Dual-platform
+  // transfers (Metro Center, Gallery Pl, …) are detected separately via
+  // secondaryCode; combine both for "connection"-style station dots.
+  getConnectionCodes(): Set<string> {
+    // For each station code, the set of adjacent station codes on each line.
+    const neighbors = new Map<string, Map<string, Set<string>>>()
+    for (const line of this.getLineCodes()) {
+      const anchors =
+        this._routeAnchors.get(`${line}:1`) ?? this._routeAnchors.get(`${line}:2`) ?? []
+      const codes = anchors.map(a => a.code)
+      for (let i = 0; i < codes.length; i++) {
+        const c = codes[i]
+        let perLine = neighbors.get(c)
+        if (!perLine) { perLine = new Map(); neighbors.set(c, perLine) }
+        let set = perLine.get(line)
+        if (!set) { set = new Set(); perLine.set(line, set) }
+        if (i > 0 && codes[i - 1] !== c) set.add(codes[i - 1])
+        if (i < codes.length - 1 && codes[i + 1] !== c) set.add(codes[i + 1])
+      }
+    }
+    const result = new Set<string>()
+    for (const [code, perLine] of neighbors) {
+      if (perLine.size < 2) continue   // only one line passes here — not a junction
+      const sets = [...perLine.values()]
+      const union = new Set<string>()
+      sets.forEach(s => s.forEach(x => union.add(x)))
+      // If any line's neighbours differ from the combined set, the lines branch.
+      if (sets.some(s => s.size !== union.size)) result.add(code)
+    }
+    return result
+  }
+
   async fetchTrainPositions(): Promise<TrainPosition[]> {
     const res = await fetch(
       'https://api.wmata.com/TrainPositions/TrainPositions?contentType=json',

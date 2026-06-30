@@ -55,14 +55,16 @@ import locOffRaw from './assets/location-state_off.svg?raw'
 import locOnRaw from './assets/location-state_on.svg?raw'
 import dir1Raw from './assets/Train_dir_1.svg?raw'
 import dir2Raw from './assets/Train_dir_2.svg?raw'
+import stationDotRaw from './assets/Station_dot.svg?raw'
+import stationConnRaw from './assets/Station_dot--connection.svg?raw'
 import pinUser from './assets/Pindrop.svg'
 
 const LINE_COLORS: Record<string, string> = {
-  RD: '#E51636',
-  BL: '#0063A6',
-  OR: '#E47E00',
-  SV: '#919D9D',
-  GR: '#09801A',
+  RD: '#E31937',
+  BL: '#0076C0',
+  OR: '#F7941D',
+  SV: '#A1A2A1',
+  GR: '#0DA94F',
   YL: '#FFD200',
 }
 
@@ -84,6 +86,10 @@ const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20,
 const LINE_ORDER = ['RD', 'OR', 'SV', 'BL', 'YL', 'GR']
 const LINE_W = 3
 const LINE_GAP = 1
+// Max px a connection hub may be nudged from the station centre (offsets span
+// ±10px; a clean diagonal crossing reaches ~14px). Beyond this we treat the
+// least-squares crossing as unstable and fall back to the centroid.
+const MAX_HUB_SHIFT = 16
 
 function offsetPx(line: string): number {
   const i = LINE_ORDER.indexOf(line)
@@ -114,6 +120,24 @@ function offsetLatLngs(map: L.Map, latlngs: L.LatLng[], px: number): L.LatLng[] 
   return out
 }
 
+// Unit normal of a polyline at vertex `idx` in layer-pixel space (same basis as
+// offsetLatLngs), plus that vertex's layer point. Used to place a connection
+// hub at the least-squares intersection of its lines' offset ribbons.
+function segNormalPx(map: L.Map, latlngs: L.LatLng[], idx: number): { c: L.Point; nx: number; ny: number } {
+  const pts = latlngs.map(ll => map.latLngToLayerPoint(ll))
+  const cur = pts[idx]
+  let nx = 0, ny = 0, n = 0
+  const add = (a: L.Point, b: L.Point) => {
+    const dx = b.x - a.x, dy = b.y - a.y
+    const len = Math.hypot(dx, dy) || 1
+    nx += -dy / len; ny += dx / len; n++
+  }
+  if (idx > 0) add(pts[idx - 1], cur)
+  if (idx < pts.length - 1) add(cur, pts[idx + 1])
+  if (n) { nx /= n; ny /= n; const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l }
+  return { c: cur, nx, ny }
+}
+
 // Live-train marker: train SVG recolored to its line, rotated so its arrow
 // leads along travel, and shifted onto its line's ribbon.
 //   bearing      = travel direction (drives the arrow rotation)
@@ -139,6 +163,17 @@ function trainIcon(line: string, bearing: number, geomBearing: number): L.DivIco
   return L.divIcon({ html, className: 'train-marker', iconSize: [TRAIN_SIZE, TRAIN_SIZE], iconAnchor: [c - ox, c - oy] })
 }
 
+// Station markers: a small white dot for normal stops, a larger ringed dot for
+// transfer (dual-code) stations. A custom className drops Leaflet's default box.
+const STATION_SIZE = 14
+const STATION_CONN_SIZE = 22
+function stationDotIcon(isConnection: boolean): L.DivIcon {
+  const size = isConnection ? STATION_CONN_SIZE : STATION_SIZE
+  const raw = isConnection ? stationConnRaw : stationDotRaw
+  const svg = raw.replace(/width="\d+" height="\d+"/, `width="${size}" height="${size}"`)
+  return L.divIcon({ html: svg, className: 'station-dot', iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+}
+
 // Tap-a-train popup: line icon → destination, car count, train number.
 function trainPopupHtml(t: PlacedTrain): string {
   const dest = t.destination
@@ -160,8 +195,9 @@ function trainPopupHtml(t: PlacedTrain): string {
 type Private = {
   map: L.Map | null
   userPin: L.Marker | null
-  stationMarkers: { station: Station; marker: L.CircleMarker }[]
-  stationDots: { marker: L.CircleMarker; pts: L.LatLng[]; idx: number; offset: number }[]
+  stationMarkers: { station: Station; marker: L.Marker; isConnection: boolean }[]
+  stationDots: { marker: L.Marker; pts: L.LatLng[]; idx: number; offset: number }[]
+  connectionDots: { marker: L.Marker; segs: { pts: L.LatLng[]; idx: number; offset: number }[] }[]
   bridgeControls: BridgeControls | null
   hasZoomed: boolean
   programmatic: boolean
@@ -369,20 +405,46 @@ export default defineComponent({
     _placeStationMarkers() {
       const p = _p.get(this)!
       if (!p.map) return
+      // Dual-code transfer stations (Metro Center, Gallery Pl, L'Enfant, Fort
+      // Totten) appear as two rows sharing a name/platform. Merge each pair into
+      // one dot — combining its lines — and mark it as a connection so it gets
+      // the larger ringed icon. All other stations get the plain dot.
+      const seen = new Set<string>()
       for (const station of this.stations) {
-        // Uniform white dot with a black ring — the colored ribbon carries the
-        // line identity now.
-        const marker = L.circleMarker([station.lat, station.lon], {
-          radius: 6,
-          color: '#000',
-          fillColor: '#fff',
-          fillOpacity: 1,
-          weight: 2,
+        if (seen.has(station.code)) continue
+        seen.add(station.code)
+        let lines = station.lines
+        const isConnection = !!station.secondaryCode
+        if (station.secondaryCode) {
+          seen.add(station.secondaryCode)
+          const pair = this.stations.find(o => o.code === station.secondaryCode)
+          if (pair) lines = [...new Set([...lines, ...pair.lines])]
+        }
+        const marker = L.marker([station.lat, station.lon], {
+          icon: stationDotIcon(isConnection),
+          interactive: true,
         })
           .bindTooltip(station.name)
           .addTo(p.map)
         marker.on('click', () => this.pinStation(station.code))
-        p.stationMarkers.push({ station, marker })
+        p.stationMarkers.push({ station: { ...station, lines }, marker, isConnection })
+      }
+    },
+
+    // Once route geometry is loaded, promote single-platform junction stations
+    // (Rosslyn, Pentagon, …) to the connection icon. Runs after _drawLines so
+    // getConnectionCodes() has topology to work with.
+    _applyConnectionStyle() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      const junctions = wmataClient.getConnectionCodes()
+      for (const e of p.stationMarkers) {
+        if (e.isConnection) continue
+        const sec = e.station.secondaryCode
+        if (junctions.has(e.station.code) || (sec != null && junctions.has(sec))) {
+          e.isConnection = true
+          e.marker.setIcon(stationDotIcon(true))
+        }
       }
     },
 
@@ -392,21 +454,37 @@ export default defineComponent({
       const p = _p.get(this)
       if (!p?.map) return
       p.stationDots = []
-      for (const { station, marker } of p.stationMarkers) {
+      p.connectionDots = []
+      for (const { station, marker, isConnection } of p.stationMarkers) {
         const lines = station.lines.filter(l => wmataClient.getLinePath(l).length >= 2)
         if (lines.length === 0) continue
+        // Local 3-point segment of a line at this station (for the perpendicular).
+        const seg3 = (line: string) => {
+          const path = wmataClient.getLinePath(line)
+          const i = path.findIndex(pt => pt.lat === station.lat && pt.lon === station.lon)
+          if (i < 0) return null
+          const pts: L.LatLng[] = []
+          let idx = 0
+          if (i > 0) { pts.push(L.latLng(path[i - 1].lat, path[i - 1].lon)); idx = 1 }
+          pts.push(L.latLng(station.lat, station.lon))
+          if (i < path.length - 1) pts.push(L.latLng(path[i + 1].lat, path[i + 1].lon))
+          return { pts, idx }
+        }
+        if (isConnection) {
+          // Hub dot: keep one segment per line so it can be placed at the
+          // intersection of all its (offset) ribbons, not a single one.
+          const segs = []
+          for (const l of lines) {
+            const s = seg3(l)
+            if (s) segs.push({ pts: s.pts, idx: s.idx, offset: offsetPx(l) })
+          }
+          if (segs.length) p.connectionDots.push({ marker, segs })
+          continue
+        }
         const offset = lines.reduce((a, l) => a + offsetPx(l), 0) / lines.length
         if (offset === 0) continue // already centred
-        // Use one of its lines for the local segment (perpendicular direction).
-        const path = wmataClient.getLinePath(lines[0])
-        const i = path.findIndex(pt => pt.lat === station.lat && pt.lon === station.lon)
-        if (i < 0) continue
-        const pts: L.LatLng[] = []
-        let idx = 0
-        if (i > 0) { pts.push(L.latLng(path[i - 1].lat, path[i - 1].lon)); idx = 1 }
-        pts.push(L.latLng(station.lat, station.lon))
-        if (i < path.length - 1) pts.push(L.latLng(path[i + 1].lat, path[i + 1].lon))
-        p.stationDots.push({ marker, pts, idx, offset })
+        const s = seg3(lines[0])
+        if (s) p.stationDots.push({ marker, pts: s.pts, idx: s.idx, offset })
       }
       this._renderStationDots()
     },
@@ -416,6 +494,34 @@ export default defineComponent({
       if (!p?.map) return
       for (const d of p.stationDots) {
         d.marker.setLatLng(offsetLatLngs(p.map, d.pts, d.offset)[d.idx])
+      }
+      // Connection hub: solve for the point closest to every line's offset
+      // ribbon centre-line (least squares). Δ = A⁻¹·v where A = Σ nᵢnᵢᵀ and
+      // v = Σ offsetᵢ·nᵢ. Lands the dot on the actual ribbon crossing.
+      for (const d of p.connectionDots) {
+        let Axx = 0, Axy = 0, Ayy = 0, vx = 0, vy = 0
+        let c: L.Point | null = null
+        for (const s of d.segs) {
+          const nrm = segNormalPx(p.map, s.pts, s.idx)
+          c = nrm.c
+          Axx += nrm.nx * nrm.nx; Axy += nrm.nx * nrm.ny; Ayy += nrm.ny * nrm.ny
+          vx += s.offset * nrm.nx; vy += s.offset * nrm.ny
+        }
+        if (!c) continue
+        // Default to the bounded centroid of the offset ribbons. Use the exact
+        // least-squares crossing only when the ribbons cross cleanly (matrix
+        // well-conditioned) AND the result stays near the bundle — a shallow
+        // branch (e.g. East Falls Church, where Orange/Silver barely diverge)
+        // is near-singular and would otherwise fling the dot far off.
+        const k = d.segs.length || 1
+        let dx = vx / k, dy = vy / k
+        const det = Axx * Ayy - Axy * Axy
+        if (Math.abs(det) > 1e-3) {
+          const lx = (Ayy * vx - Axy * vy) / det
+          const ly = (Axx * vy - Axy * vx) / det
+          if (Math.hypot(lx, ly) <= MAX_HUB_SHIFT) { dx = lx; dy = ly }
+        }
+        d.marker.setLatLng(p.map.layerPointToLatLng(L.point(c.x + dx, c.y + dy)))
       }
     },
 
@@ -441,6 +547,7 @@ export default defineComponent({
         p.linePolys.push({ poly, center, offset: offsetPx(line) })
       }
       this._renderLineOffsets()
+      this._applyConnectionStyle()
       this._buildStationDots()
     },
 
@@ -474,6 +581,7 @@ export default defineComponent({
       bridgeControls: null, hasZoomed: false, programmatic: false,
       trainLayer: null, trainTimer: null, countdownTimer: null, trainState: new Map(),
       trainMarkers: new Map(), lineLayer: null, linePolys: [], stationDots: [],
+      connectionDots: [],
     })
     this._initMap()
 
@@ -592,8 +700,9 @@ body,
   cursor: pointer;
 }
 .info-ic {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: auto;
+  aspect-ratio: 1;
 }
 
 /* Live-update countdown */
@@ -652,6 +761,16 @@ body,
 }
 .train-arrow svg {
   display: block;
+}
+.station-dot {
+  cursor: pointer;
+}
+.station-dot svg {
+  display: block;
+}
+
+.train-marker {
+  transition: 335ms linear all;
 }
 
 /* Tap-a-train popup (dark theme — scoped class beats Leaflet's defaults) */

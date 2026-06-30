@@ -162,13 +162,13 @@ export default defineComponent({
   max-height: 46vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  box-shadow: 0 10px 20px -5px rgba(0,0,0,0.65);
 }
 .result {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 12px;
-  border-radius: 10px;
   cursor: pointer;
 }
 .result:active {

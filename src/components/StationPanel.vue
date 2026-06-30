@@ -58,6 +58,7 @@ export default defineComponent({
 
 <style scoped>
 .panel {
+  --corner-rounding: 25px;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -65,15 +66,15 @@ export default defineComponent({
   overflow: hidden;
   background: linear-gradient(180deg, #0f0f0f 0%, #272727 100%);
   border-top: 1px solid #464646;
-  border-radius: 50px 50px 0 0;
-  /* Sit above the map, which extends behind this panel's rounded top. */
+  border-radius: var(--corner-rounding) var(--corner-rounding) 0 0;
   position: relative;
   z-index: 1;
 }
 .panel-head {
+  --pin-size: 18px;
   flex-shrink: 0;
   text-align: center;
-  padding: 18px 20px 16px;
+  padding: 20px;
   border-bottom: 1px solid #464646;
 }
 .list-scroll {
@@ -89,20 +90,24 @@ export default defineComponent({
 }
 .name-row {
   position: relative;
+  &:has(.sel-pin) {
+    padding: 0 calc(var(--pin-size) + 20px);
+  }
 }
 .sel-pin {
   position: absolute;
   left: 4px;
   top: 50%;
   transform: translateY(-50%);
-  height: 30px;
-  width: auto;
+  width: var(--pin-size);
+  height: auto;
 }
 .name {
-  font-size: 30px;
-  font-weight: 800;
+  font-size: 26px;
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: #fff;
+  text-wrap: balance;
   line-height: 1.1;
 }
 .dist {

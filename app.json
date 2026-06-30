@@ -2,12 +2,22 @@
   "package_id": "com.ltrademark.wmatatracker",
   "edition": "202601",
   "name": "MetroTracker",
-  "version": "0.5.7",
+  "version": "0.6.0",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "entrypoint": "index.html",
   "permissions": [
-    { "name": "network", "desc": "WMATA Rail API and map tiles" },
+    {
+      "name": "network",
+      "desc": "WMATA Rail API for live train predictions and positions, plus CartoDB map tiles.",
+      "whitelist": [
+        "https://api.wmata.com",
+        "https://a.basemaps.cartocdn.com",
+        "https://b.basemaps.cartocdn.com",
+        "https://c.basemaps.cartocdn.com",
+        "https://d.basemaps.cartocdn.com"
+      ]
+    },
     { "name": "location", "desc": "GPS for nearest Metro station" }
   ],
   "supported_languages": ["en"]

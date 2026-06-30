@@ -82,6 +82,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   let isPinned = false
   let viewedStation: Station | null = null   // station whose board is shown in the timetable
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  // Signature of the landing list ([current, ...nearby]). While it's unchanged
+  // we refresh only the status text in place, never rebuilding the list — that
+  // keeps the native selection cursor from jumping on periodic refreshes.
+  let lastStationsSig = ''
+  const stationsSig = () => `${currentStation?.code ?? ''}|${nearby.map(s => s.code).join(',')}`
 
   async function doRefresh(goToTimetable = false, stationOverride?: Station) {
     if (!currentStation) return
@@ -106,7 +111,16 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     if (inTimetable) {
       await glassesDisplay.showTimetable(station, trains, currentDistKm, currentStation, nearby, locationOn)
     } else {
-      await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn)
+      // Landing view: only rebuild the list when its contents actually change
+      // (nearest station / nearby set). Otherwise just refresh the status line
+      // in place so the selection cursor stays put across periodic refreshes.
+      const sig = stationsSig()
+      if (glassesDisplay.view === 'stations' && sig === lastStationsSig) {
+        await glassesDisplay.updateStatus(currentDistKm)
+      } else {
+        lastStationsSig = sig
+        await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn)
+      }
     }
   }
 
@@ -160,7 +174,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // textEvent/listEvent: user interaction from rebuildPageContainer containers.
   // sysEvent: foreground lifecycle events AND interactions from createStartUpPageContainer.
   // CLICK_EVENT (0) may be normalised to undefined by the SDK — handle both.
-  bridge.onEvenHubEvent(event => {
+  const unsubscribeEvents = bridge.onEvenHubEvent(event => {
     const sys = event.sysEvent as { eventType?: number } | undefined
     const sysType = sys?.eventType as number | undefined
 
@@ -170,6 +184,15 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     }
     if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
       stopTimer(); return
+    }
+    // OS is tearing down the plugin — release resources before it terminates.
+    if (
+      sysType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
+      sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT
+    ) {
+      stopTimer()
+      locationManager.stop()
+      return
     }
 
     // Resolve event type: prefer textEvent/listEvent (docs pattern);
@@ -216,6 +239,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
           const stationList = currentStation ? [currentStation, ...nearby] : nearby
           const selected = stationList[idx] ?? currentStation ?? undefined
           void doRefresh(true, selected)
+        } else if (isDoublePress) {
+          // Top-level back gesture exits the plugin. Mode 1 pops the OS exit
+          // layer; on confirm the SYSTEM_EXIT handler above runs cleanup and
+          // the page container is shut down before termination.
+          void bridge.shutDownPageContainer(1)
         }
         break
 
@@ -226,6 +254,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         } else if (isDoublePress) {
           if (currentStation) {
             viewedStation = null
+            lastStationsSig = stationsSig()   // list freshly built — let timer go light
             void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned)
           }
         }
@@ -323,6 +352,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     destroy() {
       stopTimer()
       locationManager.stop()
+      unsubscribeEvents()
     },
   }
 }

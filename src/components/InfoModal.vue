@@ -79,7 +79,7 @@ export default defineComponent({
 .card-head {
   position: relative;
   text-align: center;
-  padding: 28px 24px 20px;
+  padding: 20px;
   border-bottom: 1px solid #1e1e1e;
 }
 .close {
@@ -108,14 +108,15 @@ export default defineComponent({
   font-size: 14px;
   color: #8a8a8a;
   margin-top: 4px;
+  text-wrap: balance;
 }
 .body {
-  padding: 20px 24px;
+  padding: 20px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 .whatsnew {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: #fff;
   margin-bottom: 12px;
@@ -132,7 +133,7 @@ export default defineComponent({
 .changes li {
   position: relative;
   padding-left: 20px;
-  font-size: 15px;
+  font-size: 12px;
   line-height: 1.4;
   color: #e2e2e2;
 }
@@ -159,6 +160,10 @@ export default defineComponent({
   color: #cfcfcf;
   font-size: 13px;
   cursor: pointer;
+  text-align: left;
+  & span {
+    text-align: inherit;
+  }
 }
 .ltm {
   width: 22px;
@@ -173,7 +178,7 @@ export default defineComponent({
   color: #f2f2f2;
   font-size: 14px;
   font-weight: 600;
-  padding: 8px 16px;
+  padding: 8px;
   border-radius: 10px;
   cursor: pointer;
   flex-shrink: 0;
