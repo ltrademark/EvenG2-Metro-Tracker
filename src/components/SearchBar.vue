@@ -154,7 +154,6 @@ export default defineComponent({
 .results {
   list-style: none;
   margin: 8px 0 0;
-  padding: 6px;
   border-radius: 16px;
   background: rgba(12, 12, 12, 0.97);
   border: 1px solid #242424;
