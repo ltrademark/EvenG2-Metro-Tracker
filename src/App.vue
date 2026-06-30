@@ -160,7 +160,8 @@ function trainPopupHtml(t: PlacedTrain): string {
 type Private = {
   map: L.Map | null
   userPin: L.Marker | null
-  stationMarkers: L.CircleMarker[]
+  stationMarkers: { station: Station; marker: L.CircleMarker }[]
+  stationDots: { marker: L.CircleMarker; pts: L.LatLng[]; idx: number; offset: number }[]
   bridgeControls: BridgeControls | null
   hasZoomed: boolean
   programmatic: boolean
@@ -361,8 +362,8 @@ export default defineComponent({
       map.on('moveend', () => {
         p.programmatic = false
       })
-      // Pixel offsets are zoom-dependent — recompute the ribbons after a zoom.
-      map.on('zoomend', () => this._renderLineOffsets())
+      // Pixel offsets are zoom-dependent — recompute ribbons + dots after a zoom.
+      map.on('zoomend', () => { this._renderLineOffsets(); this._renderStationDots() })
     },
 
     _placeStationMarkers() {
@@ -381,7 +382,40 @@ export default defineComponent({
           .bindTooltip(station.name)
           .addTo(p.map)
         marker.on('click', () => this.pinStation(station.code))
-        p.stationMarkers.push(marker)
+        p.stationMarkers.push({ station, marker })
+      }
+    },
+
+    // Shift each dot onto its line's ribbon (to the centre of its bundle for
+    // transfer stations) so dots sit on the lines, not the un-offset centreline.
+    _buildStationDots() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      p.stationDots = []
+      for (const { station, marker } of p.stationMarkers) {
+        const lines = station.lines.filter(l => wmataClient.getLinePath(l).length >= 2)
+        if (lines.length === 0) continue
+        const offset = lines.reduce((a, l) => a + offsetPx(l), 0) / lines.length
+        if (offset === 0) continue // already centred
+        // Use one of its lines for the local segment (perpendicular direction).
+        const path = wmataClient.getLinePath(lines[0])
+        const i = path.findIndex(pt => pt.lat === station.lat && pt.lon === station.lon)
+        if (i < 0) continue
+        const pts: L.LatLng[] = []
+        let idx = 0
+        if (i > 0) { pts.push(L.latLng(path[i - 1].lat, path[i - 1].lon)); idx = 1 }
+        pts.push(L.latLng(station.lat, station.lon))
+        if (i < path.length - 1) pts.push(L.latLng(path[i + 1].lat, path[i + 1].lon))
+        p.stationDots.push({ marker, pts, idx, offset })
+      }
+      this._renderStationDots()
+    },
+
+    _renderStationDots() {
+      const p = _p.get(this)
+      if (!p?.map) return
+      for (const d of p.stationDots) {
+        d.marker.setLatLng(offsetLatLngs(p.map, d.pts, d.offset)[d.idx])
       }
     },
 
@@ -407,6 +441,7 @@ export default defineComponent({
         p.linePolys.push({ poly, center, offset: offsetPx(line) })
       }
       this._renderLineOffsets()
+      this._buildStationDots()
     },
 
     _renderLineOffsets() {
@@ -438,7 +473,7 @@ export default defineComponent({
       map: null, userPin: null, stationMarkers: [],
       bridgeControls: null, hasZoomed: false, programmatic: false,
       trainLayer: null, trainTimer: null, countdownTimer: null, trainState: new Map(),
-      trainMarkers: new Map(), lineLayer: null, linePolys: [],
+      trainMarkers: new Map(), lineLayer: null, linePolys: [], stationDots: [],
     })
     this._initMap()
 
