@@ -63,14 +63,13 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #0a0a0a;
+  background: linear-gradient(180deg, #0f0f0f 0%, #272727 100%);
 }
 .panel-head {
   flex-shrink: 0;
   text-align: center;
   padding: 18px 20px 16px;
   border-bottom: 1px solid #161616;
-  background: #0a0a0a;
 }
 .list-scroll {
   flex: 1;
