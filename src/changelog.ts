@@ -5,7 +5,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry = {
-  version: '0.5.6',
+  version: '0.5.7',
   changes: [
     'Live View: watch trains move across the map in real time',
     'Metro lines drawn on the map — color-coded and side-by-side',
