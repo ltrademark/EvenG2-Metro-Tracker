@@ -66,6 +66,9 @@ export default defineComponent({
   background: linear-gradient(180deg, #0f0f0f 0%, #272727 100%);
   border-top: 1px solid #464646;
   border-radius: 50px 50px 0 0;
+  /* Sit above the map, which extends behind this panel's rounded top. */
+  position: relative;
+  z-index: 1;
 }
 .panel-head {
   flex-shrink: 0;

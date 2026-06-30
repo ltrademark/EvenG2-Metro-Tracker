@@ -71,6 +71,10 @@ const LINE_COLORS: Record<string, string> = {
 const POLL_SECS = 10
 const POLL_MS = POLL_SECS * 1000
 
+// The map renders this many px behind the floating panel (see .map bottom).
+// Centering offsets by half of it so the framing matches a non-underlapped map.
+const MAP_UNDERLAP = 50
+
 // Blue teardrop marking the user's GPS position (tip at the coordinate).
 const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
 
@@ -331,7 +335,11 @@ export default defineComponent({
       const p = _p.get(this)
       if (!p?.map) return
       p.programmatic = true
-      p.map.setView([lat, lon], zoom)
+      // The map extends MAP_UNDERLAP px below the visible area (behind the
+      // panel), so its center is low — nudge the target up by half that to keep
+      // the same framing as a non-underlapped map.
+      const pt = p.map.project([lat, lon], zoom).add([0, MAP_UNDERLAP / 2])
+      p.map.setView(p.map.unproject(pt, zoom), zoom)
     },
 
     _initMap() {
@@ -515,7 +523,15 @@ body,
 }
 .map {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Extend the map 50px below the map area so it renders behind the panel's
+     rounded top (the panel floats over it). Keep in sync with MAP_UNDERLAP. */
+  bottom: -50px;
+  /* Own stacking context so Leaflet's high-z panes stay contained below the
+     panel (z-index 1) where they overlap it. */
+  z-index: 0;
   background: #0a0a0a;
 }
 .leaflet-container {
