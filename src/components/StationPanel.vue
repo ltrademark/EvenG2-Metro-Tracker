@@ -69,7 +69,7 @@ export default defineComponent({
   flex-shrink: 0;
   text-align: center;
   padding: 18px 20px 16px;
-  border-bottom: 1px solid #161616;
+  border-bottom: 1px solid #464646;
 }
 .list-scroll {
   flex: 1;

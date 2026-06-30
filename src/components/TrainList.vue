@@ -52,7 +52,7 @@ export default defineComponent({
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
-  border-bottom: 1px solid #161616;
+  border-bottom: 1px solid #464646;
 }
 .dest {
   flex: 1;
