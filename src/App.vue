@@ -533,7 +533,7 @@ body,
   gap: 8px;
   height: 36px;
   padding: 0 12px 0 8px;
-  border: none;
+  border: 1px solid #464646;
   border-radius: 18px;
   background: rgba(15, 15, 15, 0.9);
   color: #cfcfcf;
@@ -571,7 +571,7 @@ body,
   gap: 8px;
   height: 52px;
   padding: 0 22px;
-  border: none;
+  border: 1px solid #464646;
   border-radius: 26px;
   background: rgba(15, 15, 15, 0.92);
   color: #ff3b30;
@@ -581,6 +581,7 @@ body,
 }
 .live-btn.active {
   background: #ff3b30;
+  border-color: #ff3b30;
   color: #fff;
 }
 .live-dot {
@@ -648,7 +649,7 @@ body,
   z-index: 500;
   width: 56px;
   height: 56px;
-  border: none;
+  border: 1px solid #464646;
   border-radius: 50%;
   background: rgba(15, 15, 15, 0.9);
   display: flex;
