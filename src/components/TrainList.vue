@@ -52,13 +52,13 @@ export default defineComponent({
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
-  border-bottom: 1px solid #464646;
+  border-bottom: 1px solid var(--c-border);
 }
 .dest {
   flex: 1;
   font-size: 18px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--c-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -66,11 +66,12 @@ export default defineComponent({
 .eta {
   font-size: 16px;
   font-weight: 700;
-  color: #8a8a8a;
+  color: var(--c-text-faint);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-}
-.eta.soon {
-  color: #3cd35c;
+
+  &.soon {
+    color: var(--c-soon);
+  }
 }
 </style>

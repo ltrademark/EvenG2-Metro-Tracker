@@ -5,10 +5,8 @@
 
       <SearchBar v-if="!liveView" :stations="stations" @select="onSelectStation" />
 
-      <!-- Live-update countdown (top-right) -->
       <div v-if="liveView" class="update-counter">Updating in {{ countdown }}s</div>
 
-      <!-- Version / info button -->
       <button class="info-btn" @click="showInfo = true">
         <img :src="icQuery" class="info-ic" alt="info" />
         <span class="info-ver">v{{ version }}</span>
@@ -20,7 +18,6 @@
         <span>{{ liveView ? 'Exit Live View' : 'Live View' }}</span>
       </button>
 
-      <!-- Recenter-on-location button -->
       <button class="loc-btn" @click="recenter" aria-label="My location">
         <span class="loc-ic" v-html="locIconSvg"></span>
       </button>
@@ -643,8 +640,8 @@ body,
 #app {
   height: 100%;
   font-family: system-ui, -apple-system, sans-serif;
-  background: #0a0a0a;
-  color: #eee;
+  background: var(--c-bg);
+  color: var(--c-text-soft);
 }
 .app {
   display: flex;
@@ -675,13 +672,12 @@ body,
   /* Own stacking context so Leaflet's high-z panes stay contained below the
      panel (z-index 1) where they overlap it. */
   z-index: 0;
-  background: #0a0a0a;
+  background: var(--c-bg);
 }
 .leaflet-container {
-  background: #0a0a0a;
+  background: var(--c-bg);
 }
 
-/* Version / info button */
 .info-btn {
   position: absolute;
   left: 14px;
@@ -692,10 +688,10 @@ body,
   gap: 8px;
   height: 36px;
   padding: 0 12px 0 8px;
-  border: 1px solid #464646;
+  border: 1px solid var(--c-border);
   border-radius: 18px;
-  background: rgba(15, 15, 15, 0.9);
-  color: #cfcfcf;
+  background: rgba(var(--c-panel-rgb), 0.9);
+  color: var(--c-text-dim);
   font-size: 13px;
   cursor: pointer;
 }
@@ -705,7 +701,6 @@ body,
   aspect-ratio: 1;
 }
 
-/* Live-update countdown */
 .update-counter {
   position: absolute;
   top: 14px;
@@ -713,14 +708,13 @@ body,
   z-index: 500;
   padding: 6px 12px;
   border-radius: 14px;
-  background: rgba(15, 15, 15, 0.85);
-  color: #cfcfcf;
+  background: rgba(var(--c-panel-rgb), 0.85);
+  color: var(--c-text-dim);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   backdrop-filter: blur(8px);
 }
 
-/* Live View toggle */
 .live-btn {
   position: absolute;
   right: 82px;
@@ -731,42 +725,45 @@ body,
   gap: 8px;
   height: 52px;
   padding: 0 22px;
-  border: 1px solid #464646;
-  border-radius: 26px;
-  background: rgba(15, 15, 15, 0.92);
-  color: #ff3b30;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  background: rgba(var(--c-panel-rgb), 0.92);
+  color: var(--c-live);
   font-size: 17px;
   font-weight: 700;
   cursor: pointer;
-}
-.live-btn.active {
-  background: #ff3b30;
-  border-color: #ff3b30;
-  color: #fff;
+
+  &.active {
+    background: var(--c-live);
+    border-color: var(--c-live);
+    color: var(--c-text);
+  }
 }
 .live-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ff3b30;
+  background: var(--c-live);
   flex-shrink: 0;
 }
 .live-btn.active .live-dot {
-  background: #fff;
+  background: var(--c-text);
 }
 .train-arrow {
   width: 26px;
   height: 26px;
   transform-origin: center;
-}
-.train-arrow svg {
-  display: block;
+
+  & svg {
+    display: block;
+  }
 }
 .station-dot {
   cursor: pointer;
-}
-.station-dot svg {
-  display: block;
+
+  & svg {
+    display: block;
+  }
 }
 
 .train-marker {
@@ -774,44 +771,47 @@ body,
 }
 
 /* Tap-a-train popup (dark theme — scoped class beats Leaflet's defaults) */
-.train-popup-wrap .leaflet-popup-content-wrapper {
-  background: #141414;
-  color: #eee;
-  border: 1px solid #2a2a2a;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+.train-popup-wrap {
+  & .leaflet-popup-content-wrapper {
+    background: #141414;
+    color: var(--c-text-soft);
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+  & .leaflet-popup-content {
+    margin: 10px 14px;
+  }
+  & .leaflet-popup-tip {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+  }
+  & .leaflet-popup-close-button {
+    color: #777;
+  }
 }
-.train-popup-wrap .leaflet-popup-content {
-  margin: 10px 14px;
-}
-.train-popup-wrap .leaflet-popup-tip {
-  background: #141414;
-  border: 1px solid #2a2a2a;
-}
-.train-popup-wrap .leaflet-popup-close-button {
-  color: #777;
-}
-.train-popup .tp-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-}
-.train-popup .tp-icon {
-  width: 26px;
-  height: 26px;
-  display: block;
-  flex-shrink: 0;
-}
-.train-popup .tp-meta {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #9a9a9a;
+.train-popup {
+  & .tp-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--c-text);
+  }
+  & .tp-icon {
+    width: 26px;
+    height: 26px;
+    display: block;
+    flex-shrink: 0;
+  }
+  & .tp-meta {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #9a9a9a;
+  }
 }
 
-/* Location button */
 .loc-btn {
   position: absolute;
   right: 14px;
@@ -819,9 +819,9 @@ body,
   z-index: 500;
   width: 56px;
   height: 56px;
-  border: 1px solid #464646;
+  border: 1px solid var(--c-border);
   border-radius: 50%;
-  background: rgba(15, 15, 15, 0.9);
+  background: rgba(var(--c-panel-rgb), 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -831,10 +831,11 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.loc-ic svg {
-  width: 28px;
-  height: 28px;
-  display: block;
+
+  & svg {
+    width: 28px;
+    height: 28px;
+    display: block;
+  }
 }
 </style>

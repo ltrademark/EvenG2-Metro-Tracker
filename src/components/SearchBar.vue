@@ -110,14 +110,15 @@ export default defineComponent({
   gap: 10px;
   height: 52px;
   padding: 0 8px 0 16px;
-  border-radius: 26px;
+  border-radius: var(--r-pill);
   background: rgba(20, 20, 20, 0.9);
   border: 1px solid #2a2a2a;
   backdrop-filter: blur(8px);
-}
-.searchbar.active {
-  background: rgba(17, 85, 238, 0.18);
-  border-color: #1155ee;
+
+  &.active {
+    background: rgba(var(--c-accent-rgb), 0.18);
+    border-color: var(--c-accent);
+  }
 }
 .search-ic {
   width: 20px;
@@ -131,12 +132,13 @@ export default defineComponent({
   background: transparent;
   border: none;
   outline: none;
-  color: #fff;
+  color: var(--c-text);
   font-size: 17px;
-}
-.search-input::placeholder {
-  color: #8a8a8a;
-  font-style: italic;
+
+  &::placeholder {
+    color: var(--c-text-faint);
+    font-style: italic;
+  }
 }
 .chevron-btn {
   background: transparent;
@@ -169,9 +171,10 @@ export default defineComponent({
   gap: 12px;
   padding: 12px 12px;
   cursor: pointer;
-}
-.result:active {
-  background: rgba(17, 85, 238, 0.18);
+
+  &:active {
+    background: rgba(var(--c-accent-rgb), 0.18);
+  }
 }
 .result + .result {
   border-top: 1px solid #1b1b1b;
@@ -180,7 +183,7 @@ export default defineComponent({
   flex: 1;
   font-size: 17px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--c-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

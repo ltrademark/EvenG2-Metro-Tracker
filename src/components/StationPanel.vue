@@ -64,8 +64,8 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, #0f0f0f 0%, #272727 100%);
-  border-top: 1px solid #464646;
+  background: linear-gradient(180deg, var(--c-panel-top) 0%, var(--c-panel-bottom) 100%);
+  border-top: 1px solid var(--c-border);
   border-radius: var(--corner-rounding) var(--corner-rounding) 0 0;
   position: relative;
   z-index: 1;
@@ -75,7 +75,7 @@ export default defineComponent({
   flex-shrink: 0;
   text-align: center;
   padding: 20px;
-  border-bottom: 1px solid #464646;
+  border-bottom: 1px solid var(--c-border);
 }
 .list-scroll {
   flex: 1;
@@ -85,7 +85,7 @@ export default defineComponent({
 }
 .kicker {
   font-size: 13px;
-  color: #7a7a7a;
+  color: var(--c-text-fainter);
   margin-bottom: 4px;
 }
 .name-row {
@@ -106,13 +106,13 @@ export default defineComponent({
   font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: #fff;
+  color: var(--c-text);
   text-wrap: balance;
   line-height: 1.1;
 }
 .dist {
   font-size: 14px;
-  color: #7a7a7a;
+  color: var(--c-text-fainter);
   margin-top: 6px;
 }
 .empty {
@@ -134,16 +134,16 @@ export default defineComponent({
 .empty-primary {
   font-size: 20px;
   font-weight: 600;
-  color: #f2f2f2;
+  color: var(--c-text-muted);
 }
 .empty-or {
   font-size: 14px;
-  color: #6a6a6a;
+  color: var(--c-text-faintest);
 }
 .empty-secondary {
   font-size: 18px;
   font-weight: 500;
-  color: #f2f2f2;
+  color: var(--c-text-muted);
   line-height: 1.35;
 }
 </style>

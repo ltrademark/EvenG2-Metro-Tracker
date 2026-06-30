@@ -88,7 +88,7 @@ export default defineComponent({
   right: 16px;
   background: transparent;
   border: none;
-  color: #8a8a8a;
+  color: var(--c-text-faint);
   font-size: 18px;
   cursor: pointer;
   line-height: 1;
@@ -102,11 +102,11 @@ export default defineComponent({
 .app-name {
   font-size: 26px;
   font-weight: 800;
-  color: #fff;
+  color: var(--c-text);
 }
 .app-desc {
   font-size: 14px;
-  color: #8a8a8a;
+  color: var(--c-text-faint);
   margin-top: 4px;
   text-wrap: balance;
 }
@@ -118,11 +118,11 @@ export default defineComponent({
 .whatsnew {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: var(--c-text);
   margin-bottom: 12px;
 }
 .ver {
-  color: #3cd35c;
+  color: var(--c-soon);
 }
 .changes {
   list-style: none;
@@ -136,12 +136,13 @@ export default defineComponent({
   font-size: 12px;
   line-height: 1.4;
   color: #e2e2e2;
-}
-.changes li::before {
-  content: '•';
-  position: absolute;
-  left: 4px;
-  color: #6a6a6a;
+
+  &::before {
+    content: '•';
+    position: absolute;
+    left: 4px;
+    color: var(--c-text-faintest);
+  }
 }
 .card-foot {
   display: flex;
@@ -157,7 +158,7 @@ export default defineComponent({
   gap: 8px;
   background: transparent;
   border: none;
-  color: #cfcfcf;
+  color: var(--c-text-dim);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
@@ -175,15 +176,16 @@ export default defineComponent({
 .report {
   background: transparent;
   border: 1px solid #3a3a3a;
-  color: #f2f2f2;
+  color: var(--c-text-muted);
   font-size: 14px;
   font-weight: 600;
   padding: 8px;
   border-radius: 10px;
   cursor: pointer;
   flex-shrink: 0;
-}
-.report:active {
-  background: #1d1d1d;
+
+  &:active {
+    background: #1d1d1d;
+  }
 }
 </style>
