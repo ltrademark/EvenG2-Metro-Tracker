@@ -379,9 +379,11 @@ export default defineComponent({
     _initMap() {
       const el = this.$refs.mapEl as HTMLElement
       const map = L.map(el, { zoomControl: false, attributionControl: false }).setView([38.9072, -77.0369], 11)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      // Pinned to a single subdomain so the bundled tile URL matches an exact
+      // whitelist origin — the `{s}` template expands to an undeclared host and
+      // trips Even Hub's network-whitelist scanner.
+      L.tileLayer('https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        subdomains: 'abcd',
       }).addTo(map)
       // Route lines sit below the station dots (default overlay pane).
       map.createPane('lines')

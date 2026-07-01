@@ -9,13 +9,12 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "WMATA Rail API for live train predictions and positions, plus CartoDB map tiles.",
+      "desc": "Real-time DC Metro arrivals and live train positions from the official WMATA API, plus dark map tiles from CartoDB.",
       "whitelist": [
         "https://api.wmata.com",
         "https://a.basemaps.cartocdn.com",
-        "https://b.basemaps.cartocdn.com",
-        "https://c.basemaps.cartocdn.com",
-        "https://d.basemaps.cartocdn.com"
+        "https://www.ltrademark.com",
+        "https://github.com"
       ]
     },
     { "name": "location", "desc": "GPS for nearest Metro station" }
