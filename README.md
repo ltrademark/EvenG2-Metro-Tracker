@@ -1,8 +1,14 @@
-<img width="100" height="100" alt="image" src="https://github.com/user-attachments/assets/9defd0ed-33ed-45ce-a807-ca5aa3fce5c6" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5ca9cc64-0f34-46aa-af04-8c15aee8cb25" />
 
-# MetroTracker
+---
 
-Real-time Washington DC Metro tracker for Even Realities G2 smart glasses. The glasses show a live arrivals board — line, destination, and minutes to arrival — mirroring the departure signs in the stations. The companion phone app adds an interactive map of the whole rail network, station search, and a **Live View** of trains moving across the map in real time. Data comes from the official [WMATA](https://developer.wmata.com) API.
+<div align="center">
+  <img width="144" height="144" alt="image" src="https://github.com/user-attachments/assets/a9a392d5-ca49-4f5d-83b8-aec31c6558f9" />
+  <h1>MetroTracker</h1>
+  <p>Real-time Washington DC Metro tracker for Even Realities G2 smart glasses. The glasses show a live arrivals board — line, destination, and minutes to arrival — mirroring the departure signs in the stations. The companion phone app adds an interactive map of the whole rail network, station search, and a **Live View** of trains moving across the map in real time. Data comes from the official <a href="https://developer.wmata.com" target="_blank">WMATA</a> API.</p>
+</div>
+
+---
 
 ## Glasses display
 
@@ -12,6 +18,10 @@ Real-time Washington DC Metro tracker for Even Realities G2 smart glasses. The g
 - **Location indicator** showing whether you're on GPS or a manually-picked station
 - Remembers your last station so it loads instantly next launch
 
+|    |    |
+| -- | -- |
+| <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/cae0bf60-3ce9-4b82-ba73-8f2c93951821" /> | <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/b80d2c2d-cf5a-45a5-956b-84248a791012" /> |
+
 ## Phone app
 
 - **Dark map** of the full network — color-coded line ribbons and station markers
@@ -19,6 +29,10 @@ Real-time Washington DC Metro tracker for Even Realities G2 smart glasses. The g
 - **Boarding-times panel** for your current or selected station, with live distance
 - **Live View** — hides the panel and animates real-time trains along the lines; tap a train for its destination, car count, and train number; refreshes every 10s with an on-screen countdown
 - **Recenter** button and an in-app info/changelog screen
+
+|    |    |    |
+| -- | -- | -- |
+| <img width="2874" height="5628" alt="image" src="https://github.com/user-attachments/assets/4f29d930-e9ca-40ab-a4c3-b58761e45473" /> | <img width="2874" height="5624" alt="image" src="https://github.com/user-attachments/assets/2393967d-7ba4-4abd-b177-ecb5852bbbb0" /> | <img width="2874" height="5624" alt="image" src="https://github.com/user-attachments/assets/25cbb013-199f-400e-8080-6bf5bd6779a9" /> |
 
 ## Prerequisites
 
