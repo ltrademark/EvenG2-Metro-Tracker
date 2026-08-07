@@ -3,9 +3,16 @@
 ---
 
 <div align="center">
-  <img width="144" height="144" alt="image" src="https://github.com/user-attachments/assets/a9a392d5-ca49-4f5d-83b8-aec31c6558f9" />
+  <img width="144" height="144" alt="image" src="/src/assets/app-icon.svg" />
   <h1>MetroTracker</h1>
   <p>Real-time Washington DC Metro tracker for Even Realities G2 smart glasses. The glasses show a live arrivals board — line, destination, and minutes to arrival — mirroring the departure signs in the stations. The companion phone app adds an interactive map of the whole rail network, station search, and a **Live View** of trains moving across the map in real time. Data comes from the official <a href="https://developer.wmata.com" target="_blank">WMATA</a> API.</p>
+  <a href="https://hub.evenrealities.com/landing?package_id=com.ltrademark.wmatatracker" target="_blank">
+    <picture width="180" height="51">
+      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/076a0ed7-136d-41a4-832e-26f17ee8dc99">
+      <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/76e98b85-722b-4452-8aec-8d7fbfd22915">
+      <img alt="Get it on EvenHub" src="https://github.com/user-attachments/assets/76e98b85-722b-4452-8aec-8d7fbfd22915" />
+    </picture>
+  </a>
 </div>
 
 ---
