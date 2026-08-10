@@ -1,6 +1,6 @@
 import { waitForEvenAppBridge, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { wmataClient } from './wmata'
+import { wmataClient, bearingDeg } from './wmata'
 import type { Station, Train } from './wmata'
 import { GlassesDisplay } from './glasses'
 import type { GlassesView } from './glasses'
@@ -57,6 +57,59 @@ function nearbyStations(
     .sort((a, b) => a.d - b.d)
     .slice(0, limit)
     .map(x => x.s)
+}
+
+// Minimum alignment between the heading and the first step of a candidate
+// direction for it to count as "the way we're going" — cos(θ), so this admits
+// roughly ±78°. Below it the direction is a guess and distance ordering is the
+// honest answer.
+const MIN_HEADING_ALIGNMENT = 0.2
+
+// The stops ahead of `current`, in the order they'll be reached.
+//
+// Ordering by raw distance puts stations *behind* the train in the list simply
+// because they're still close. Walking the line's own station sequence in the
+// direction of travel gives the upcoming-stops view instead. Direction is chosen
+// by comparing the heading against the first step each way, which also settles
+// which line we're on at a multi-line station.
+//
+// Returns null when there's no confident answer — no route geometry loaded yet,
+// current station absent from the sequence, or a heading that doesn't align with
+// either direction. Callers fall back to distance ordering.
+// Exported so the direction-choosing logic can be exercised against real WMATA
+// route topology without standing up the whole bridge.
+export function journeyStations(current: Station, heading: number, limit = 7): Station[] | null {
+  const ownCodes = new Set(
+    [current.code, current.secondaryCode].filter((c): c is string => c != null),
+  )
+  let best: { stations: Station[]; alignment: number } | null = null
+
+  for (const line of current.lines) {
+    const seq = wmataClient.getLineStationCodes(line)
+    if (seq.length < 2) continue
+    const here = seq.findIndex(c => ownCodes.has(c))
+    if (here < 0) continue
+
+    for (const step of [1, -1]) {
+      const nextStation = wmataClient.getStationByCode(seq[here + step] ?? '')
+      if (!nextStation) continue
+      const stepBearing = bearingDeg(current.lat, current.lon, nextStation.lat, nextStation.lon)
+      const alignment = Math.cos(((stepBearing - heading) * Math.PI) / 180)
+      if (best && alignment <= best.alignment) continue
+
+      const ahead: Station[] = []
+      for (let i = here + step; i >= 0 && i < seq.length && ahead.length < limit; i += step) {
+        const station = wmataClient.getStationByCode(seq[i])
+        if (!station) continue
+        if (ownCodes.has(station.code)) continue
+        if (ahead.some(s => s.code === station.code)) continue
+        ahead.push(station)
+      }
+      if (ahead.length) best = { stations: ahead, alignment }
+    }
+  }
+
+  return best && best.alignment >= MIN_HEADING_ALIGNMENT ? best.stations : null
 }
 
 export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeControls> {
@@ -163,13 +216,27 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     }
   }
 
+  // Upcoming stops while riding, nearest stops otherwise. Journey ordering needs
+  // route geometry (loaded by the web app on mount) and a confident heading, so
+  // every unmet precondition falls through to the distance-based list.
+  function listForStation(station: Station): Station[] {
+    if (locationManager?.motion === 'transit') {
+      const heading = locationManager.heading
+      if (heading !== null) {
+        const journey = journeyStations(station, heading)
+        if (journey) return journey
+      }
+    }
+    return nearbyStations(stations, userLat, userLon, station.code)
+  }
+
   const locationManager = new LocationManager(
     bridge,
     stations,
     (station) => {
       if (isPinned) return
       currentStation = station
-      nearby = nearbyStations(stations, userLat, userLon, station.code)
+      nearby = listForStation(station)
       persistStation()
       void doRefresh()   // doRefresh notifies both UIs of the focused station
     },
@@ -184,6 +251,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         currentDistKm = haversineKm(lat, lon, focused.lat, focused.lon)
         adapter.onDistanceChanged(currentDistKm)
       }
+    },
+    (motion) => {
+      // Boarding or alighting changes both the badge and what the list should
+      // show, so refresh rather than waiting up to 30s for the next tick.
+      glassesDisplay.setInTransit(motion === 'transit')
+      if (!isPinned && currentStation) nearby = listForStation(currentStation)
+      void doRefresh()
     },
   )
 

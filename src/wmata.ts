@@ -336,6 +336,20 @@ export class WmataClient {
     return anchors.map(a => ({ lat: a.lat, lon: a.lon }))
   }
 
+  // Station codes along a line in running order — the same anchor sequence
+  // getLinePath draws, so an index here is directly comparable to a position on
+  // that path. Consecutive duplicates are collapsed: a station can anchor more
+  // than one circuit, and the journey view needs one entry per stop.
+  getLineStationCodes(line: string): string[] {
+    const anchors =
+      this._routeAnchors.get(`${line}:1`) ?? this._routeAnchors.get(`${line}:2`) ?? []
+    const out: string[] = []
+    for (const a of anchors) {
+      if (out[out.length - 1] !== a.code) out.push(a.code)
+    }
+    return out
+  }
+
   // Codes of single-platform junction stations — where the lines serving a stop
   // branch onto different track (Rosslyn, Pentagon, Stadium-Armory, East Falls
   // Church, King St, …). Detected from route topology: at a junction the lines

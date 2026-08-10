@@ -24,6 +24,15 @@ const LOC_SIZE = 24
 const LOC_X = 8
 const LOC_Y = 257
 
+// In-transit badge, immediately right of the location badge. Present only while
+// moving — there is a single asset rather than an on/off pair, so "absent" is
+// the resting state and the row stays uncluttered when standing still.
+const MOTION_URL  = '/icons/Train_is_moving.png'
+const MOTION_SIZE = 24
+const MOTION_GAP  = 6
+const MOTION_X    = LOC_X + LOC_SIZE + MOTION_GAP
+const MOTION_Y    = LOC_Y
+
 // Hardware renders text a little wider than the simulator/pretext predicts, so
 // every text budget keeps this much slack to truncate cleanly instead of
 // wrapping onto a second line.
@@ -233,6 +242,7 @@ export class GlassesDisplay {
   private _timetableDistKm = 0
   private _timetableLocationOn = true
   private _statusDistKm = 0
+  private _inTransit = false
   private _imgCache = new Map<string, number[]>()
 
   constructor(bridge: EvenAppBridge) {
@@ -282,6 +292,17 @@ export class GlassesDisplay {
     return this._renderedStationsSig
   }
 
+  // Set from the motion detector. Held as state rather than passed per-render so
+  // refreshTimetable() and the periodic refresh pick it up without threading an
+  // extra argument through every call site.
+  setInTransit(v: boolean): void {
+    this._inTransit = v
+  }
+
+  get inTransit(): boolean {
+    return this._inTransit
+  }
+
   private async _fetchImg(url: string): Promise<number[]> {
     const cached = this._imgCache.get(url)
     if (cached) return cached
@@ -300,17 +321,24 @@ export class GlassesDisplay {
 
   // Push the on/off location icon into a freshly-rebuilt image container.
   // Re-pushed on every rebuild because rebuildPageContainer recreates containers.
-  private async _pushLocationIcon(id: number, on: boolean): Promise<void> {
-    const url = on ? LOCATION_ON_URL : LOCATION_OFF_URL
+  private async _pushIcon(id: number, name: string, url: string): Promise<void> {
     try {
       const bytes = await this._fetchImg(url)
       await withTimeout(
-        this._bridge.updateImageRawData({ containerID: id, containerName: 'loc', imageData: bytes }),
-        'updateImageRawData(loc)',
+        this._bridge.updateImageRawData({ containerID: id, containerName: name, imageData: bytes }),
+        `updateImageRawData(${name})`,
       )
     } catch (err) {
-      console.warn('Location icon load failed:', err)
+      console.warn(`Icon load failed (${name}):`, err)
     }
+  }
+
+  // Bottom-left badge row: location state, plus the in-transit badge when
+  // moving. Both are re-pushed on every rebuild because rebuildPageContainer
+  // recreates the containers.
+  private async _pushBadges(locId: number, motionId: number, on: boolean): Promise<void> {
+    await this._pushIcon(locId, 'loc', on ? LOCATION_ON_URL : LOCATION_OFF_URL)
+    if (this._inTransit) await this._pushIcon(motionId, 'motion', MOTION_URL)
   }
 
   get view(): GlassesView {
@@ -414,10 +442,15 @@ export class GlassesDisplay {
       const statusW = getTextWidth(status)
       const statusX = W - 4 - statusW
 
+      // IDs 1–3 are always present; the in-transit badge is ID 4 when shown, so
+      // the declared count stays 1..N either way.
+      const badges = [img(3, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)]
+      if (this._inTransit) badges.push(img(4, 'motion', MOTION_X, MOTION_Y, MOTION_SIZE, MOTION_SIZE))
+
       await withTimeout(
         this._bridge.rebuildPageContainer({
-          containerTotalNum: 3,
-          imageObject: [img(3, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
+          containerTotalNum: badges.length + 2,
+          imageObject: badges,
           textObject: [
             txt(2, 'clock', statusX, 258, statusW + 4, LH, status),
           ],
@@ -432,7 +465,7 @@ export class GlassesDisplay {
       // acting on a screen the user can't see.
       this._view = 'stations'
       this._renderedStationsSig = sig
-      await this._pushLocationIcon(3, locationOn)
+      await this._pushBadges(3, 4, locationOn)
     })
   }
 
@@ -505,10 +538,14 @@ export class GlassesDisplay {
     const statusW = getTextWidth(status)
     const statusX = W - 4 - statusW
 
+    // IDs 1–9 are always present; the in-transit badge is ID 10 when shown.
+    const badges = [img(9, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)]
+    if (this._inTransit) badges.push(img(10, 'motion', MOTION_X, MOTION_Y, MOTION_SIZE, MOTION_SIZE))
+
     await withTimeout(
       this._bridge.rebuildPageContainer({
-        containerTotalNum: 9,
-        imageObject: [img(9, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
+        containerTotalNum: badges.length + 8,
+        imageObject: badges,
         textObject: [
           txt(2, 'frame',   PANEL_X,   4, PANEL_W,  252, '', false, PANEL_BW, 4),
           txt(3, 'dir',     PANEL_IX, 12, DEST_HDR_W,  LH, dest, true),
@@ -533,7 +570,7 @@ export class GlassesDisplay {
     // Only claim the timetable view once it is actually on screen — otherwise a
     // failed rebuild would leave taps toggling a direction the user can't see.
     this._view = 'timetable'
-    await this._pushLocationIcon(9, locationOn)
+    await this._pushBadges(9, 10, locationOn)
     })
   }
 
