@@ -106,6 +106,24 @@ const ROUTES_KEY = 'wmata.routes'
 const ROUTES_TS_KEY = 'wmata.routes_ts'
 const CACHE_TTL = 24 * 60 * 60 * 1000
 
+// `fetch` has no default timeout, so a request made in a tunnel (or anywhere the
+// connection is accepted but never answered) can stay pending indefinitely and
+// stall whatever awaits it. Every WMATA call goes through here so each one is
+// bounded and fails cleanly into the existing error handling.
+const FETCH_TIMEOUT_MS = 15_000
+
+async function fetchWmata<T>(url: string, label: string): Promise<T> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { headers: { api_key: __WMATA_KEY__ }, signal: ctrl.signal })
+    if (!res.ok) throw new Error(`${label} failed: ${res.status}`)
+    return (await res.json()) as T
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export class WmataClient {
   private _stations: Station[] = []
   private _lastFetchAt = 0
@@ -133,12 +151,10 @@ export class WmataClient {
       }
     }
 
-    const res = await fetch('https://api.wmata.com/Rail.svc/json/jStations', {
-      headers: { api_key: __WMATA_KEY__ },
-    })
-    if (!res.ok) throw new Error(`Stations fetch failed: ${res.status}`)
-
-    const data = (await res.json()) as { Stations: StationRaw[] }
+    const data = await fetchWmata<{ Stations: StationRaw[] }>(
+      'https://api.wmata.com/Rail.svc/json/jStations',
+      'Stations fetch',
+    )
     this._stations = data.Stations.map(s => ({
       code: s.Code,
       name: s.Name,
@@ -170,12 +186,10 @@ export class WmataClient {
 
     if (now - this._lastFetchAt >= minInterval) {
       try {
-        const res = await fetch(
+        const data = await fetchWmata<{ Trains: TrainRaw[] }>(
           'https://api.wmata.com/StationPrediction.svc/json/GetPrediction/All',
-          { headers: { api_key: __WMATA_KEY__ } },
+          'Predictions fetch',
         )
-        if (!res.ok) throw new Error(`Predictions fetch failed: ${res.status}`)
-        const data = (await res.json()) as { Trains: TrainRaw[] }
         this._allPredictionsRaw = data.Trains
         this._lastFetchAt = now
         this._consecutiveErrors = 0
@@ -239,12 +253,10 @@ export class WmataClient {
       }
     }
     if (!routes) {
-      const res = await fetch(
+      const data = await fetchWmata<{ StandardRoutes: StandardRouteRaw[] }>(
         'https://api.wmata.com/TrainPositions/StandardRoutes?contentType=json',
-        { headers: { api_key: __WMATA_KEY__ } },
+        'StandardRoutes fetch',
       )
-      if (!res.ok) throw new Error(`StandardRoutes fetch failed: ${res.status}`)
-      const data = (await res.json()) as { StandardRoutes: StandardRouteRaw[] }
       routes = data.StandardRoutes
       if (this._bridge) {
         await this._bridge.setLocalStorage(ROUTES_KEY, JSON.stringify(routes))
@@ -360,12 +372,10 @@ export class WmataClient {
   }
 
   async fetchTrainPositions(): Promise<TrainPosition[]> {
-    const res = await fetch(
+    const data = await fetchWmata<{ TrainPositions: TrainPositionRaw[] }>(
       'https://api.wmata.com/TrainPositions/TrainPositions?contentType=json',
-      { headers: { api_key: __WMATA_KEY__ } },
+      'TrainPositions fetch',
     )
-    if (!res.ok) throw new Error(`TrainPositions fetch failed: ${res.status}`)
-    const data = (await res.json()) as { TrainPositions: TrainPositionRaw[] }
     return data.TrainPositions.map(t => ({
       trainId: t.TrainId,
       trainNumber: t.TrainNumber,

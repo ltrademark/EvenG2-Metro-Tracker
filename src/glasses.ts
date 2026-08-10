@@ -54,6 +54,26 @@ const PANEL_BW = 2
 const PANEL_IX = PANEL_X + 20      // 20px horizontal padding from outer border
 const PANEL_IW = PANEL_W - 40      // 322
 
+// ── Bridge-call timeouts ───────────────────────────────────────────────────
+//
+// Every bridge call is a BLE round-trip to the glasses and can stall
+// indefinitely — a stressed radio (crowded train, phone in a pocket) is enough.
+// An unbounded await inside the render lock used to wedge the whole display
+// permanently: the lock was never released, so every later render early-returned
+// and taps stopped doing anything while on-device list scrolling kept working.
+// Bounding each call means a stall surfaces as a rejection we can recover from.
+const BRIDGE_TIMEOUT_MS = 5_000
+
+function withTimeout<T>(p: Promise<T>, label: string, ms = BRIDGE_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    p.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
+
 // ── Container helpers ──────────────────────────────────────────────────────
 
 function img(
@@ -199,6 +219,11 @@ function stationItems(
 export class GlassesDisplay {
   private _bridge: EvenAppBridge
   private _rendering = false
+  private _pending: (() => Promise<void>) | null = null
+  // Signature of the station list actually on screen. Only advanced after a
+  // successful rebuild, so a dropped or failed render is always retried rather
+  // than being mistaken for "already drawn".
+  private _renderedStationsSig = ''
   private _view: GlassesView = 'splash'
   private _trainGroup: '1' | '2' = '1'
   private _timetableStation: Station | null = null
@@ -214,14 +239,63 @@ export class GlassesDisplay {
     this._bridge = bridge
   }
 
+  // ── Render queue ───────────────────────────────────────────────────────
+  //
+  // Renders are serialised (concurrent rebuilds would interleave on the wire),
+  // but a render arriving mid-flight is *queued*, not dropped. Latest wins:
+  // every task redraws the current state from scratch, so a newer request
+  // supersedes a waiting one. This is what makes a tap that lands during an
+  // auto-refresh still open the timetable instead of being silently swallowed.
+  //
+  // `_rendering` is set immediately before the try and cleared in its finally,
+  // so it is released on every path — including a timeout or a throw in the
+  // layout maths. Nothing may await between the assignment and the try.
+  private async _enqueue(task: () => Promise<void>): Promise<void> {
+    this._pending = task
+    if (this._rendering) return   // an active drain will pick it up
+    this._rendering = true
+    try {
+      while (this._pending) {
+        const next = this._pending
+        this._pending = null
+        try {
+          await next()
+        } catch (err) {
+          // One failed render must not abort the drain or leak the lock.
+          console.error('Glasses render failed:', err)
+        }
+      }
+    } finally {
+      this._rendering = false
+    }
+  }
+
+  // Recovery hatch, called when the app returns to the foreground. With the
+  // queue above the lock should never stick, but clearing it costs nothing and
+  // guarantees a background/foreground cycle always restores a usable UI.
+  resetRenderLock(): void {
+    this._rendering = false
+    this._pending = null
+  }
+
+  get renderedStationsSig(): string {
+    return this._renderedStationsSig
+  }
+
   private async _fetchImg(url: string): Promise<number[]> {
     const cached = this._imgCache.get(url)
     if (cached) return cached
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`Image fetch ${url}: ${res.status}`)
-    const bytes = Array.from(new Uint8Array(await res.arrayBuffer()))
-    this._imgCache.set(url, bytes)
-    return bytes
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), BRIDGE_TIMEOUT_MS)
+    try {
+      const res = await fetch(url, { signal: ctrl.signal })
+      if (!res.ok) throw new Error(`Image fetch ${url}: ${res.status}`)
+      const bytes = Array.from(new Uint8Array(await res.arrayBuffer()))
+      this._imgCache.set(url, bytes)
+      return bytes
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // Push the on/off location icon into a freshly-rebuilt image container.
@@ -230,7 +304,10 @@ export class GlassesDisplay {
     const url = on ? LOCATION_ON_URL : LOCATION_OFF_URL
     try {
       const bytes = await this._fetchImg(url)
-      await this._bridge.updateImageRawData({ containerID: id, containerName: 'loc', imageData: bytes })
+      await withTimeout(
+        this._bridge.updateImageRawData({ containerID: id, containerName: 'loc', imageData: bytes }),
+        'updateImageRawData(loc)',
+      )
     } catch (err) {
       console.warn('Location icon load failed:', err)
     }
@@ -264,11 +341,23 @@ export class GlassesDisplay {
     // createStartUpPageContainer is required before any hardware feature, but
     // hardware does NOT render images on the startup container. We still declare
     // the logo container here (keeps IDs 1–4 stable) — it just stays blank…
-    const result = await this._bridge.createStartUpPageContainer({
-      containerTotalNum: 4,
-      imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
-      textObject: this._splashText(),
-    })
+    // Bounded like every other bridge call: without a timeout a stalled BLE
+    // link here hangs initBridge forever and the app never finishes starting.
+    // A rejection instead lets the caller's retry path take over.
+    let result: number
+    try {
+      result = await withTimeout(
+        this._bridge.createStartUpPageContainer({
+          containerTotalNum: 4,
+          imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
+          textObject: this._splashText(),
+        }),
+        'createStartUpPageContainer',
+      )
+    } catch (err) {
+      console.error('createStartUpPageContainer failed:', err)
+      return false
+    }
     this._view = 'splash'
 
     // …then rebuild the same page with the logo. Rebuild-based images DO render
@@ -281,13 +370,19 @@ export class GlassesDisplay {
       console.warn('Logo prefetch failed:', err)
     }
     try {
-      await this._bridge.rebuildPageContainer({
-        containerTotalNum: 4,
-        imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
-        textObject: this._splashText(),
-      })
+      await withTimeout(
+        this._bridge.rebuildPageContainer({
+          containerTotalNum: 4,
+          imageObject: [img(1, 'logo', logoX, 16, LOGO_W, LOGO_H)],
+          textObject: this._splashText(),
+        }),
+        'rebuildPageContainer(splash)',
+      )
       if (logoBytes) {
-        await this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: logoBytes })
+        await withTimeout(
+          this._bridge.updateImageRawData({ containerID: 1, containerName: 'logo', imageData: logoBytes }),
+          'updateImageRawData(logo)',
+        )
       }
     } catch (err) {
       console.warn('Splash logo render failed:', err)
@@ -307,35 +402,38 @@ export class GlassesDisplay {
     nearbyStations: Station[],
     distKm: number,
     locationOn = true,
+    sig = '',
   ): Promise<void> {
-    if (this._rendering) return
-    this._rendering = true
-    this._statusDistKm = distKm
+    return this._enqueue(async () => {
+      this._statusDistKm = distKm
 
-    const items = stationItems(currentStation, nearbyStations, currentStation.code, false)
-    const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
+      const items = stationItems(currentStation, nearbyStations, currentStation.code, false)
+      const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
-    const status = statusStr(distKm)
-    const statusW = getTextWidth(status)
-    const statusX = W - 4 - statusW
+      const status = statusStr(distKm)
+      const statusW = getTextWidth(status)
+      const statusX = W - 4 - statusW
 
-    try {
-      await this._bridge.rebuildPageContainer({
-        containerTotalNum: 3,
-        imageObject: [img(3, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
-        textObject: [
-          txt(2, 'clock', statusX, 258, statusW + 4, LH, status),
-        ],
-        // Landing list: near-full-width selection cursor (itemWidth), no marker.
-        listObject: [lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, true, LIST_BW, LIST_RADIUS, true, LIST_PAD, LIST_ITEM_W)],
-      })
-      await this._pushLocationIcon(3, locationOn)
-    } catch (err) {
-      console.error('showStations error:', err)
-    } finally {
-      this._rendering = false
+      await withTimeout(
+        this._bridge.rebuildPageContainer({
+          containerTotalNum: 3,
+          imageObject: [img(3, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
+          textObject: [
+            txt(2, 'clock', statusX, 258, statusW + 4, LH, status),
+          ],
+          // Landing list: near-full-width selection cursor (itemWidth), no marker.
+          listObject: [lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, true, LIST_BW, LIST_RADIUS, true, LIST_PAD, LIST_ITEM_W)],
+        }),
+        'rebuildPageContainer(stations)',
+      )
+      // Past this point the page is on screen — safe to claim the view. On a
+      // failed rebuild we deliberately leave `_view` alone: input keeps routing
+      // to whatever is actually displayed, so the next tap retries instead of
+      // acting on a screen the user can't see.
       this._view = 'stations'
-    }
+      this._renderedStationsSig = sig
+      await this._pushLocationIcon(3, locationOn)
+    })
   }
 
   // ── Timetable ──────────────────────────────────────────────────────────
@@ -367,9 +465,7 @@ export class GlassesDisplay {
     nearbyStations: Station[] = [],
     locationOn = true,
   ): Promise<void> {
-    if (this._rendering) return
-    this._rendering = true
-
+    return this._enqueue(async () => {
     this._timetableStation = station
     this._timetableCurrentStation = currentStation
     this._timetableNearby = nearbyStations
@@ -409,8 +505,8 @@ export class GlassesDisplay {
     const statusW = getTextWidth(status)
     const statusX = W - 4 - statusW
 
-    try {
-      await this._bridge.rebuildPageContainer({
+    await withTimeout(
+      this._bridge.rebuildPageContainer({
         containerTotalNum: 9,
         imageObject: [img(9, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE)],
         textObject: [
@@ -431,14 +527,14 @@ export class GlassesDisplay {
           // Height sized to the row count so a single train isn't vertically centered.
           lst(7, 'trains', PANEL_IX - 6, 84, PANEL_IW + 6, Math.min(rows.length, MAX_TRAINS) * ROW_PITCH + 6, rows),
         ],
-      })
-      await this._pushLocationIcon(9, locationOn)
-    } catch (err) {
-      console.error('showTimetable error:', err)
-    } finally {
-      this._rendering = false
-      this._view = 'timetable'
-    }
+      }),
+      'rebuildPageContainer(timetable)',
+    )
+    // Only claim the timetable view once it is actually on screen — otherwise a
+    // failed rebuild would leave taps toggling a direction the user can't see.
+    this._view = 'timetable'
+    await this._pushLocationIcon(9, locationOn)
+    })
   }
 
   toggleTrainGroup(): void {
@@ -462,16 +558,24 @@ export class GlassesDisplay {
   // the stations view, ID 8 in the timetable view.
   async updateStatus(distKm: number = this._statusDistKm): Promise<void> {
     if (this._view === 'splash') return
+    // Deliberately outside the render queue: it's the cheap 30s path and must
+    // not displace a queued rebuild (latest-wins would drop the rebuild for a
+    // mere clock tick). Skipping while a rebuild is in flight is safe — that
+    // rebuild draws the current status itself.
+    if (this._rendering) return
     this._statusDistKm = distKm
     const id = this._view === 'stations' ? 2 : 8
     try {
-      await this._bridge.textContainerUpgrade({
-        containerID: id,
-        containerName: 'clock',
-        content: statusStr(distKm),
-        contentOffset: 0,
-        contentLength: 0,
-      })
+      await withTimeout(
+        this._bridge.textContainerUpgrade({
+          containerID: id,
+          containerName: 'clock',
+          content: statusStr(distKm),
+          contentOffset: 0,
+          contentLength: 0,
+        }),
+        'textContainerUpgrade(clock)',
+      )
     } catch { /* non-critical */ }
   }
 }

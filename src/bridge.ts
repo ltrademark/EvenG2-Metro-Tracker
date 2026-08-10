@@ -3,6 +3,7 @@ import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { wmataClient } from './wmata'
 import type { Station, Train } from './wmata'
 import { GlassesDisplay } from './glasses'
+import type { GlassesView } from './glasses'
 import { LocationManager } from './location'
 
 export interface AppBridgeAdapter {
@@ -82,22 +83,41 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   let isPinned = false
   let viewedStation: Station | null = null   // station whose board is shown in the timetable
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  // Which view the user has *asked* for, as opposed to what's currently drawn
+  // (glassesDisplay.view). Set synchronously the moment an input arrives, so a
+  // tap can't be undone by an auto-refresh that started before it: renders are
+  // decided against this after their network await, not against stale state.
+  let viewIntent: Exclude<GlassesView, 'splash'> = 'stations'
   // Signature of the landing list ([current, ...nearby]). While it's unchanged
   // we refresh only the status text in place, never rebuilding the list — that
   // keeps the native selection cursor from jumping on periodic refreshes.
-  let lastStationsSig = ''
+  //
+  // The "what's on screen" side of this comparison lives in GlassesDisplay and
+  // only advances after a rebuild actually lands. Tracking it here instead meant
+  // committing the new signature before the render, so a dropped or failed
+  // render was mistaken for a completed one and the list silently stayed stale.
   const stationsSig = () => `${currentStation?.code ?? ''}|${nearby.map(s => s.code).join(',')}`
 
   async function doRefresh(goToTimetable = false, stationOverride?: Station) {
     if (!currentStation) return
 
+    if (goToTimetable) viewIntent = 'timetable'
+    if (stationOverride) viewedStation = stationOverride
+
     // In the timetable we display the station the user selected, and keep
     // displaying it across auto-refreshes — not the home station.
-    const inTimetable = goToTimetable || glassesDisplay.view === 'timetable'
-    if (stationOverride) viewedStation = stationOverride
-    const station = inTimetable ? (viewedStation ?? currentStation) : currentStation
+    const focused = () =>
+      viewIntent === 'timetable' ? (viewedStation ?? currentStation!) : currentStation!
 
-    const trains = await wmataClient.fetchPredictions(station)
+    const trains = await wmataClient.fetchPredictions(focused())
+
+    // Re-read the intent *after* the await. A tap (or a back gesture) that
+    // arrived while predictions were in flight must win over what this refresh
+    // originally set out to draw — otherwise a timer tick that started first
+    // would repaint the station list over the timetable the tap just opened.
+    const inTimetable = viewIntent === 'timetable'
+    const station = focused()
+
     adapter.onPredictionsUpdated(trains)
 
     // Single source of truth for what both UIs display: the focused station,
@@ -115,11 +135,10 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       // (nearest station / nearby set). Otherwise just refresh the status line
       // in place so the selection cursor stays put across periodic refreshes.
       const sig = stationsSig()
-      if (glassesDisplay.view === 'stations' && sig === lastStationsSig) {
+      if (glassesDisplay.view === 'stations' && sig === glassesDisplay.renderedStationsSig) {
         await glassesDisplay.updateStatus(currentDistKm)
       } else {
-        lastStationsSig = sig
-        await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn)
+        await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn, sig)
       }
     }
   }
@@ -180,6 +199,9 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
 
     // Foreground lifecycle — always sysEvent
     if (sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
+      // Recovery hatch: if a render ever wedges the queue, returning to the
+      // foreground clears it so the UI is usable again without a full restart.
+      glassesDisplay.resetRenderLock()
       startTimer(); void doRefresh(); return
     }
     if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
@@ -226,6 +248,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     switch (glassesDisplay.view) {
       case 'splash':
         if (isPress) {
+          viewIntent = 'stations'
           adapter.onSplashTap()
           if (currentStation) void doRefresh()
         }
@@ -253,9 +276,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
           void glassesDisplay.refreshTimetable()
         } else if (isDoublePress) {
           if (currentStation) {
+            // Record the back gesture before rendering, so an auto-refresh
+            // already in flight repaints the list rather than the timetable.
+            viewIntent = 'stations'
             viewedStation = null
-            lastStationsSig = stationsSig()   // list freshly built — let timer go light
-            void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned)
+            // Passing the signature lets the next timer tick take the light
+            // status-only path — but only once this rebuild actually lands.
+            void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned, stationsSig())
           }
         }
         break
