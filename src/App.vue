@@ -19,7 +19,7 @@
 
       <!-- Live View toggle (also the way back to the normal view) -->
       <button class="live-btn" :class="{ active: liveView }" @click="toggleLive">
-        <span class="live-dot"></span>
+        <span class="live-dot" v-html="liveIconRaw"></span>
         <span>{{ liveView ? 'Exit Live View' : 'Live View' }}</span>
       </button>
 
@@ -60,6 +60,7 @@ import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
 import InfoModal from './components/InfoModal.vue'
 import icQueryRaw from './assets/query icon.svg?raw'
+import liveIconRaw from './assets/LiveIcon.svg?raw'
 import locOffRaw from './assets/location-state_off.svg?raw'
 import locOnRaw from './assets/location-state_on.svg?raw'
 import dir1Raw from './assets/Train_dir_1.svg?raw'
@@ -220,6 +221,7 @@ export default defineComponent({
     return {
       version: APP_VERSION,
       icQueryRaw,
+      liveIconRaw,
       stations: [] as Station[],
       trains: [] as Train[],
       currentStation: null as Station | null,
@@ -729,10 +731,9 @@ body,
   gap: 8px;
   height: 34px;
   padding: 0 var(--sp-3) 0 var(--sp-2);
-  border: none;
+  border: 1px solid var(--c-border-soft);
   border-radius: var(--r-xs);
   background: var(--c-surface);
-  box-shadow: var(--shadow-popup);
   color: var(--c-text-dim);
   font-size: var(--fs-xs);
   cursor: pointer;
@@ -772,10 +773,9 @@ body,
   gap: 8px;
   height: 48px;
   padding: 0 var(--sp-5);
-  border: none;
+  border: 1px solid var(--c-border-soft);
   border-radius: var(--r-xs);
   background: var(--c-surface);
-  box-shadow: var(--shadow-popup);
   color: var(--c-live);
   font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
@@ -788,14 +788,18 @@ body,
   }
 }
 .live-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  background: var(--c-live);
+  display: flex;
   flex-shrink: 0;
+  color: var(--c-live);
+
+  & svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+  }
 }
 .live-btn.active .live-dot {
-  background: var(--c-surface);
+  color: var(--c-surface);
 }
 /* DEV only, so it is deliberately plain rather than designed. */
 .dev-btn {
@@ -838,7 +842,6 @@ body,
   background: var(--c-surface-raised);
   border: 1px solid var(--c-border-soft);
   border-radius: var(--r-xs);
-  box-shadow: var(--shadow-popup);
   color: var(--c-text-soft);
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
@@ -859,7 +862,6 @@ body,
     color: var(--c-text-soft);
     border: 1px solid var(--c-border-soft);
     border-radius: var(--r-sm);
-    box-shadow: var(--shadow-popup);
   }
   & .leaflet-popup-content {
     margin: 10px 14px;
@@ -901,10 +903,9 @@ body,
   z-index: 500;
   width: 48px;
   height: 48px;
-  border: none;
+  border: 1px solid var(--c-border-soft);
   border-radius: var(--r-xs);
   background: var(--c-surface);
-  box-shadow: var(--shadow-popup);
   display: flex;
   align-items: center;
   justify-content: center;

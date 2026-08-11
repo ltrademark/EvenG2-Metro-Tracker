@@ -1,11 +1,14 @@
-// Shown in the info modal (latest entry only). Update on each version bump.
+// Shown in the info modal (latest entry only). Update the copy on each version
+// bump; the version itself is taken from APP_VERSION so the two can never drift,
+// which they had, leaving the modal saying 0.6.0 beside a 0.6.1 badge on the map.
+import { APP_VERSION } from './version'
 export interface ChangelogEntry {
   version: string
   changes: string[]
 }
 
 export const CHANGELOG: ChangelogEntry = {
-  version: '0.6.0',
+  version: APP_VERSION,
   changes: [
     'Clearer station picker on the glasses — a highlight cursor shows the row you’re about to select',
     'Map: transfer stations now show as a single connection dot instead of overlapping duplicates',

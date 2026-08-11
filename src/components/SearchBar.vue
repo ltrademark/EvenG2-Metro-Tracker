@@ -1,7 +1,7 @@
 <template>
   <div class="search-wrap" :class="{ open }">
     <div class="searchbar">
-      <img :src="icSearch" class="search-ic" alt="" />
+      <span class="search-ic" v-html="icSearchRaw"></span>
       <input
         ref="input"
         v-model="query"
@@ -34,7 +34,7 @@ import { defineComponent } from 'vue'
 import type { PropType } from 'vue'
 import type { Station } from '../wmata'
 import LineIcon from './LineIcon.vue'
-import icSearch from '../assets/web_app_icon-search.svg'
+import icSearchRaw from '../assets/web_app_icon-search.svg?raw'
 
 export default defineComponent({
   name: 'SearchBar',
@@ -44,7 +44,7 @@ export default defineComponent({
   },
   emits: ['select', 'open-change'],
   data() {
-    return { query: '', open: false, icSearch }
+    return { query: '', open: false, icSearchRaw }
   },
   computed: {
     results(): Station[] {
@@ -112,17 +112,24 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  height: 44px;
+  height: 32px;
   flex-shrink: 0;
   padding: 0 var(--sp-3);
-  border-radius: var(--r-xs);
+  border-radius: 6px;
   background: var(--c-field);
+  color: var(--c-field-ink);
 }
 .search-ic {
-  width: 18px;
-  height: 18px;
+  display: flex;
   flex-shrink: 0;
-  opacity: 0.55;
+
+  /* :deep, because v-html markup carries no scope attribute for a plain selector
+     to match, so a bare `svg` rule here would silently do nothing. */
+  & :deep(svg) {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
 }
 .search-input {
   flex: 1;
@@ -130,11 +137,11 @@ export default defineComponent({
   background: transparent;
   border: none;
   outline: none;
-  color: var(--c-text);
+  color: inherit;
   font-size: var(--fs-lg);
 
   &::placeholder {
-    color: var(--c-text-faint);
+    color: inherit;
   }
 }
 .results {
@@ -142,7 +149,6 @@ export default defineComponent({
   margin: var(--sp-2) 0 0;
   border-radius: var(--r-xs);
   background: var(--c-surface);
-  box-shadow: var(--shadow-card);
   /* Only as tall as its contents, so a short result set does not leave a big
      empty white slab the way a fixed height would. */
   min-height: 0;

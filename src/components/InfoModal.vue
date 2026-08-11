@@ -73,7 +73,6 @@ export default defineComponent({
   flex-direction: column;
   background: var(--c-surface);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-dropdown);
   overflow: hidden;
 }
 .card-head {

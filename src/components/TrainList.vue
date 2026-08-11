@@ -62,7 +62,6 @@ export default defineComponent({
   height: 45px;
   background: var(--c-surface);
   border-radius: var(--r-xs);
-  box-shadow: var(--shadow-card);
 }
 .dest {
   flex: 1;
