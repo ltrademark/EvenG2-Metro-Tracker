@@ -1,14 +1,19 @@
 <template>
-  <div class="app" :class="{ live: liveView }">
+  <div class="app" :class="{ live: liveView, searching: searchOpen }">
+    <SearchBar
+      v-if="!liveView"
+      :stations="stations"
+      @select="onSelectStation"
+      @open-change="searchOpen = $event"
+    />
+
     <div class="map-wrap">
       <div ref="mapEl" class="map"></div>
-
-      <SearchBar v-if="!liveView" :stations="stations" @select="onSelectStation" />
 
       <div v-if="liveView" class="update-counter">Updating in {{ countdown }}s</div>
 
       <button class="info-btn" @click="showInfo = true">
-        <img :src="icQuery" class="info-ic" alt="info" />
+        <span class="info-ic" v-html="icQueryRaw"></span>
         <span class="info-ver">v{{ version }}</span>
       </button>
 
@@ -54,7 +59,7 @@ import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
 import InfoModal from './components/InfoModal.vue'
-import icQuery from './assets/query icon.svg'
+import icQueryRaw from './assets/query icon.svg?raw'
 import locOffRaw from './assets/location-state_off.svg?raw'
 import locOnRaw from './assets/location-state_on.svg?raw'
 import dir1Raw from './assets/Train_dir_1.svg?raw'
@@ -68,9 +73,10 @@ import pinUser from './assets/Pindrop.svg'
 const POLL_SECS = 10
 const POLL_MS = POLL_SECS * 1000
 
-// The map renders this many px behind the floating panel (see .map bottom).
-// Centering offsets by half of it so the framing matches a non-underlapped map.
-const MAP_UNDERLAP = 50
+// The map used to extend behind the panel's rounded top, and centring offset by
+// half of that so the framing looked right. In the light design the panel is flush,
+// so there is nothing to compensate for.
+const MAP_UNDERLAP = 0
 
 // Blue teardrop marking the user's GPS position (tip at the coordinate).
 const USER_PIN = L.icon({ iconUrl: pinUser, iconSize: [40, 40], iconAnchor: [20, 38] })
@@ -213,6 +219,7 @@ export default defineComponent({
   data() {
     return {
       version: APP_VERSION,
+      icQueryRaw,
       stations: [] as Station[],
       trains: [] as Train[],
       currentStation: null as Station | null,
@@ -226,8 +233,10 @@ export default defineComponent({
       // DEV affordance for the glasses track strip. Not the map's liveView above.
       isDev: import.meta.env.DEV,
       glassesStrip: false,
+      // Search takes over the whole area below the field, so the map and the
+      // boarding panel step aside rather than being overlaid.
+      searchOpen: false,
       countdown: POLL_SECS,
-      icQuery,
     }
   },
 
@@ -244,13 +253,21 @@ export default defineComponent({
     // stop working: string surgery against a literal fill broke the moment the
     // assets were re-exported without that exact attribute, and did so invisibly.
     locIconColor(): string {
-      return this.userLat !== null ? 'var(--c-accent)' : 'var(--c-text)'
+      return this.userLat !== null ? 'var(--c-text)' : 'var(--c-text-faint)'
     },
   },
 
   watch: {
     stations(newStations: Station[]) {
       if (newStations.length > 0) this._placeStationMarkers()
+    },
+    // The map is display:none while search results are up, so it has no size to
+    // measure and comes back blank. Remeasuring on the way back is the documented
+    // remedy, and it has to wait for the DOM to actually be laid out again.
+    searchOpen(open: boolean) {
+      if (open) return
+      const p = _p.get(this)
+      this.$nextTick(() => p?.map?.invalidateSize())
     },
     currentStation() {
       const p = _p.get(this)
@@ -398,7 +415,7 @@ export default defineComponent({
       // Pinned to a single subdomain so the bundled tile URL matches an exact
       // whitelist origin — the `{s}` template expands to an undeclared host and
       // trips Even Hub's network-whitelist scanner.
-      L.tileLayer('https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      L.tileLayer('https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
       }).addTo(map)
       // Route lines sit below the station dots (default overlay pane).
@@ -661,13 +678,14 @@ body,
   height: 100%;
   font-family: system-ui, -apple-system, sans-serif;
   background: var(--c-bg);
-  color: var(--c-text-soft);
+  color: var(--c-text);
 }
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
+
 .map-wrap {
   position: relative;
   height: 55vh;
@@ -681,14 +699,17 @@ body,
 .app.live .panel {
   display: none;
 }
+/* Searching takes over everything below the field, rather than dropping a list
+   over the map. Hiding the map outright means Leaflet loses its container size
+   while it is away, so the searchOpen watcher calls invalidateSize on the way
+   back or the map returns blank. */
+.app.searching .map-wrap,
+.app.searching .panel {
+  display: none;
+}
 .map {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  /* Extend the map 50px below the map area so it renders behind the panel's
-     rounded top (the panel floats over it). Keep in sync with MAP_UNDERLAP. */
-  bottom: -50px;
+  inset: 0;
   /* Own stacking context so Leaflet's high-z panes stay contained below the
      panel (z-index 1) where they overlap it. */
   z-index: 0;
@@ -700,25 +721,31 @@ body,
 
 .info-btn {
   position: absolute;
-  left: 14px;
-  bottom: 14px;
+  left: var(--sp-3);
+  bottom: var(--sp-3);
   z-index: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 12px 0 8px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-xl);
-  background: rgba(var(--c-panel-rgb), 0.9);
+  height: 34px;
+  padding: 0 var(--sp-3) 0 var(--sp-2);
+  border: none;
+  border-radius: var(--r-xs);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-popup);
   color: var(--c-text-dim);
-  font-size: 13px;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 .info-ic {
-  width: 16px;
-  height: auto;
-  aspect-ratio: 1;
+  display: flex;
+  color: var(--c-text);
+
+  & svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+  }
 }
 
 .update-counter {
@@ -737,20 +764,21 @@ body,
 
 .live-btn {
   position: absolute;
-  right: 82px;
-  bottom: 16px;
+  right: 70px;
+  bottom: var(--sp-3);
   z-index: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 52px;
-  padding: 0 22px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-pill);
-  background: rgba(var(--c-panel-rgb), 0.92);
+  height: 48px;
+  padding: 0 var(--sp-5);
+  border: none;
+  border-radius: var(--r-xs);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-popup);
   color: var(--c-live);
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   cursor: pointer;
 
   &.active {
@@ -760,14 +788,14 @@ body,
   }
 }
 .live-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: var(--r-round);
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   background: var(--c-live);
   flex-shrink: 0;
 }
 .live-btn.active .live-dot {
-  background: var(--c-text);
+  background: var(--c-surface);
 }
 /* DEV only, so it is deliberately plain rather than designed. */
 .dev-btn {
@@ -778,10 +806,10 @@ body,
   height: 30px;
   padding: 0 12px;
   border: 1px dashed var(--c-border);
-  border-radius: var(--r-pill);
-  background: rgba(var(--c-panel-rgb), 0.9);
+  border-radius: var(--r-xs);
+  background: var(--c-surface);
   color: var(--c-text-dim);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .train-arrow {
   width: 26px;
@@ -868,14 +896,15 @@ body,
 
 .loc-btn {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
   z-index: 500;
-  width: 56px;
-  height: 56px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-round);
-  background: rgba(var(--c-panel-rgb), 0.9);
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-popup);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,19 +1,16 @@
 <template>
-  <div class="search-wrap">
-    <div class="searchbar" :class="{ active: open }">
+  <div class="search-wrap" :class="{ open }">
+    <div class="searchbar">
       <img :src="icSearch" class="search-ic" alt="" />
       <input
         ref="input"
         v-model="query"
         class="search-input"
         type="text"
-        placeholder="Search Stations…"
+        placeholder="Search Stations..."
         @focus="open = true"
         @blur="onBlur"
       />
-      <button class="chevron-btn" @mousedown.prevent @click="toggle" aria-label="Toggle list">
-        <img :src="icDropdown" class="search-chevron" alt="" />
-      </button>
     </div>
 
     <ul v-if="open && results.length" class="results">
@@ -38,7 +35,6 @@ import type { PropType } from 'vue'
 import type { Station } from '../wmata'
 import LineIcon from './LineIcon.vue'
 import icSearch from '../assets/web_app_icon-search.svg'
-import icDropdown from '../assets/web_app_icon-dropdown.svg'
 
 export default defineComponent({
   name: 'SearchBar',
@@ -46,9 +42,9 @@ export default defineComponent({
   props: {
     stations: { type: Array as PropType<Station[]>, default: () => [] },
   },
-  emits: ['select'],
+  emits: ['select', 'open-change'],
   data() {
-    return { query: '', open: false, icSearch, icDropdown }
+    return { query: '', open: false, icSearch }
   },
   computed: {
     results(): Station[] {
@@ -77,16 +73,17 @@ export default defineComponent({
         .slice(0, 40)
     },
   },
+  watch: {
+    open(v: boolean) {
+      this.$emit('open-change', v)
+    },
+  },
   methods: {
     select(station: Station) {
       this.$emit('select', station)
       this.query = ''
       this.open = false
       ;(this.$refs.input as HTMLInputElement)?.blur()
-    },
-    toggle() {
-      this.open = !this.open
-      if (this.open) (this.$refs.input as HTMLInputElement)?.focus()
     },
     onBlur() {
       // Delay so a result tap registers before the list closes.
@@ -97,34 +94,35 @@ export default defineComponent({
 </script>
 
 <style scoped>
+/* First element in our viewport: the title bar above it belongs to the Even
+   Realities host, not to this app. */
 .search-wrap {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  right: 14px;
-  z-index: 600;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--sp-2);
+}
+/* While results are up this owns the rest of the screen, so the list can scroll
+   inside it instead of the page scrolling as a whole. */
+.search-wrap.open {
+  flex: 1;
 }
 .searchbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 52px;
-  padding: 0 8px 0 16px;
-  border-radius: var(--r-pill);
-  background: rgba(var(--c-surface-raised-rgb), 0.9);
-  border: 1px solid var(--c-border-soft);
-  backdrop-filter: blur(8px);
-
-  &.active {
-    background: rgba(var(--c-accent-rgb), 0.18);
-    border-color: var(--c-accent);
-  }
+  gap: var(--sp-2);
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-xs);
+  background: var(--c-field);
 }
 .search-ic {
-  width: 20px;
-  height: 20px;
-  opacity: 0.8;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
+  opacity: 0.55;
 }
 .search-input {
   flex: 1;
@@ -133,47 +131,33 @@ export default defineComponent({
   border: none;
   outline: none;
   color: var(--c-text);
-  font-size: 17px;
+  font-size: var(--fs-lg);
 
   &::placeholder {
     color: var(--c-text-faint);
-    font-style: italic;
   }
-}
-.chevron-btn {
-  background: transparent;
-  border: none;
-  padding: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-shrink: 0;
-}
-.search-chevron {
-  width: 12px;
-  height: 12px;
-  opacity: 0.6;
 }
 .results {
   list-style: none;
-  margin: 8px 0 0;
-  border-radius: var(--r-lg);
-  background: rgba(var(--c-bg-rgb), 0.97);
-  border: 1px solid var(--c-border-soft);
-  backdrop-filter: blur(8px);
-  max-height: 46vh;
+  margin: var(--sp-2) 0 0;
+  border-radius: var(--r-xs);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-card);
+  /* Only as tall as its contents, so a short result set does not leave a big
+     empty white slab the way a fixed height would. */
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  box-shadow: var(--shadow-dropdown);
 }
 .result {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 12px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
 
   &:active {
-    background: rgba(var(--c-accent-rgb), 0.18);
+    background: var(--c-surface-hover);
   }
 }
 .result + .result {
@@ -181,9 +165,9 @@ export default defineComponent({
 }
 .result-name {
   flex: 1;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--c-text-muted);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

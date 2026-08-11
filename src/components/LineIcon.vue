@@ -24,8 +24,8 @@ export default defineComponent({
 
 <style scoped>
 .line-icon {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
   display: block;
 }

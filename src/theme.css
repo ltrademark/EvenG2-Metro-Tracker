@@ -2,87 +2,86 @@
  *
  * Every colour, radius and type size the web app uses is declared here, so a
  * redesign is a change to this file rather than a hunt through five components.
- * Before this, 38 colour literals lived in component styles and in JavaScript,
- * which meant changing --c-accent left the location button on its own hardcoded
- * blue, and the six near-identical border greys below were never a decision
- * anybody made.
  *
- * The colour values are exactly what they were; the names are the new part.
+ * This is the light theme matching the Even Realities app. The values were
+ * sampled out of the mockups rather than estimated, so a card really is #FFFFFF
+ * on an #EEEEEE page and the arrival green really is #11C808.
+ *
+ * The text scale reads as prominence, not lightness: --c-text is the strongest
+ * ink and --c-text-faintest the weakest. That held when the theme was dark and
+ * still holds now, which is why inverting the palette needed no renaming.
  */
 :root {
   /* ── Surfaces ─────────────────────────────────────────────────────────
-   * Elevation rather than hue: each step is the next layer up off the page.
+   * The page is grey and content sits on white cards floating above it, so
+   * "raised" is lighter here where it was darker in the dark theme.
    */
-  --c-bg: #0a0a0a;
-  --c-surface: #111;            /* modal card */
-  --c-surface-raised: #141414;  /* popups and dropdowns floating over the map */
-  --c-surface-hover: #1d1d1d;
+  --c-bg: #eeeeee;
+  --c-surface: #ffffff;         /* cards, pills, the modal */
+  --c-surface-raised: #ffffff;  /* popups and tooltips over the map */
+  --c-surface-hover: #f2f2f2;
+  --c-field: #dedede;           /* the search input's own fill */
 
-  /* The bottom sheet's gradient. */
-  --c-panel-top: #0f0f0f;
-  --c-panel-bottom: #272727;
-
-  /* Channel forms of the above. A var() cannot be interpolated inside rgba(),
-   * so anything translucent needs its channels as a separate token. */
-  --c-bg-rgb: 10, 10, 10;
-  --c-panel-rgb: 15, 15, 15;
-  --c-surface-raised-rgb: 20, 20, 20;
+  /* Channel form, for the translucent floating controls over the map. A var()
+   * cannot be interpolated inside rgba(), so anything translucent needs its
+   * channels as a separate token. */
+  --c-panel-rgb: 255, 255, 255;
 
   /* ── Borders ──────────────────────────────────────────────────────────
-   * Three weights. The literals these replace ranged over six values within
-   * 0x1b to 0x46, differences of two or three points that no eye resolves.
+   * Three weights, subtle to strong.
    */
-  --c-border-subtle: #1e1e1e;   /* hairline rules between rows */
-  --c-border-soft: #2a2a2a;     /* edge of a floating surface */
-  --c-border: #464646;          /* pills and buttons */
+  --c-border-subtle: #e8e8e8;   /* hairline rules between rows */
+  --c-border-soft: #dedede;     /* edge of a floating surface */
+  --c-border: #cfcfcf;          /* pills and buttons */
 
-  --c-accent: #1155ee;
-  --c-accent-rgb: 17, 85, 238;
+  /* The blue inside Pindrop.svg. Nothing in CSS references it yet, since the
+   * light design is ink, grey and white plus the two semantic colours below, but
+   * it is the app's accent and naming it keeps the pin from being the only
+   * record of it. */
+  --c-accent: #1d89e4;
+  --c-accent-rgb: 29, 137, 228;
 
   /* ── Text ─────────────────────────────────────────────────────────────
-   * Brightest to faintest.
+   * Strongest ink to weakest.
    */
-  --c-text: #fff;
-  --c-text-soft: #eee;
-  --c-text-muted: #f2f2f2;
-  --c-text-dim: #cfcfcf;
-  --c-text-faint: #8a8a8a;
-  --c-text-fainter: #7a7a7a;
-  --c-text-faintest: #6a6a6a;
-  --c-text-ghost: #555;         /* empty-state copy */
+  --c-text: #222222;
+  --c-text-soft: #2e2e2e;
+  --c-text-muted: #222222;
+  --c-text-dim: #5a5a5a;
+  --c-text-faint: #949494;
+  --c-text-fainter: #757575;
+  --c-text-faintest: #acacac;
+  --c-text-ghost: #b5b5b5;      /* empty-state copy */
 
   /* ── Semantic ─────────────────────────────────────────────────────────── */
-  --c-live: #ff3b30;
-  --c-soon: #3cd35c;
+  --c-live: #b90000;
+  --c-soon: #11c808;
   --c-heart: #e2533f;
 
-  --c-scrim: rgba(0, 0, 0, 0.65);
-  --shadow-popup: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-dropdown: 0 10px 20px -5px rgba(0, 0, 0, 0.65);
+  /* The modal washes the page out toward white rather than darkening it, which
+   * is the opposite of the usual scrim and is what the mockup shows. */
+  --c-scrim: rgba(255, 255, 255, 0.72);
+  --shadow-popup: 0 2px 10px rgba(0, 0, 0, 0.12);
+  --shadow-dropdown: 0 8px 20px -6px rgba(0, 0, 0, 0.18);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
 
-  /* ── Radius ───────────────────────────────────────────────────────────
-   * Every distinct value currently in use, named rather than collapsed.
-   * Collapsing them is a visible change and belongs to the redesign, not to
-   * naming things.
-   */
+  /* ── Radius ─────────────────────────────────────────────────────────── */
   --r-xs: 10px;
   --r-sm: 12px;
   --r-md: 14px;
   --r-lg: 16px;
   --r-xl: 18px;
   --r-2xl: 22px;
-  --r-sheet: 25px;   /* the bottom panel's top corners */
+  --r-sheet: 25px;
   --r-pill: 26px;
   --r-round: 50%;
 
-  /* ── Spacing and type ─────────────────────────────────────────────────
-   * Declared for the redesign to lay out against. Deliberately NOT yet
-   * adopted: 151 raw px literals remain in the components, and rewriting them
-   * before we know which values survive the new design would be churn we would
-   * only have to redo. The type steps are the sizes actually in use today.
+  /* ── Spacing ──────────────────────────────────────────────────────────
+   * --sp-2 is the gutter the mockup uses down both edges, and the rhythm the
+   * arrival cards are spaced on.
    */
   --sp-1: 4px;
-  --sp-2: 8px;
+  --sp-2: 9px;
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 20px;

@@ -25,7 +25,10 @@ export default defineComponent({
     formatEta(min: string): string {
       if (min === 'ARR') return 'ARR'
       if (min === 'BRD') return 'BRD'
-      return `${min} min`
+      // Min is not reliably a number. Near closing WMATA returns it empty, and it
+      // can also be "---" or "DLY", all of which rendered as a bare "min".
+      const n = parseInt(min, 10)
+      return isNaN(n) ? (min.trim() || '--') : `${n} min`
     },
     isSoon(min: string): boolean {
       if (min === 'ARR' || min === 'BRD') return true
@@ -40,32 +43,39 @@ export default defineComponent({
 .train-list {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--sp-2) var(--sp-4);
 }
 .empty {
-  padding: 28px;
+  padding: var(--sp-7);
   text-align: center;
   color: var(--c-text-ghost);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
+/* Each arrival is its own card rather than a row in a divided list, which is what
+   gives the panel its rhythm against the grey page behind it. */
 .train-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--c-border);
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  height: 45px;
+  background: var(--c-surface);
+  border-radius: var(--r-xs);
+  box-shadow: var(--shadow-card);
 }
 .dest {
   flex: 1;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: var(--c-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .eta {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   color: var(--c-text-faint);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;

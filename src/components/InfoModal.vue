@@ -3,7 +3,7 @@
     <div class="card" role="dialog" aria-modal="true">
       <header class="card-head">
         <button class="close" @click="$emit('close')" aria-label="Close">✕</button>
-        <img :src="appIcon" class="app-icon" alt="" />
+        <span class="app-icon" v-html="appIconRaw"></span>
         <h2 class="app-name">{{ name }}</h2>
         <p class="app-desc">{{ description }}</p>
       </header>
@@ -17,7 +17,7 @@
 
       <footer class="card-foot">
         <button class="attrib" @click="open('https://www.ltrademark.com')">
-          <img :src="ltmLogo" class="ltm" alt="" />
+          <span class="ltm" v-html="ltmLogoRaw"></span>
           <span>Made with <span class="heart">♥</span> by Ltrademark</span>
         </button>
         <button class="report" @click="open(reportUrl)">Report a bug</button>
@@ -30,16 +30,16 @@
 import { defineComponent } from 'vue'
 import { APP_NAME, APP_DESCRIPTION } from '../version'
 import { CHANGELOG } from '../changelog'
-import appIcon from '../assets/app-icon.svg'
-import ltmLogo from '../assets/LTM-Logo.svg'
+import appIconRaw from '../assets/app-icon.svg?raw'
+import ltmLogoRaw from '../assets/LTM-Logo.svg?raw'
 
 export default defineComponent({
   name: 'InfoModal',
   emits: ['close'],
   data() {
     return {
-      appIcon,
-      ltmLogo,
+      appIconRaw,
+      ltmLogoRaw,
       name: APP_NAME,
       description: APP_DESCRIPTION,
       changelog: CHANGELOG,
@@ -63,7 +63,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--sp-8);
 }
 .card {
   width: 100%;
@@ -72,8 +72,8 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   background: var(--c-surface);
-  border: 1px solid var(--c-border-soft);
-  border-radius: var(--r-xl);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-dropdown);
   overflow: hidden;
 }
 .card-head {
@@ -94,20 +94,28 @@ export default defineComponent({
   line-height: 1;
 }
 .app-icon {
-  width: 96px;
-  height: 96px;
-  border-radius: var(--r-2xl);
-  margin-bottom: 12px;
+  display: block;
+  width: 56px;
+  margin: 0 auto var(--sp-3);
+  color: var(--c-text);
+
+  /* :deep, because v-html markup gets no scope attribute for a plain selector
+     to match. Without it the icon renders at its intrinsic 250px. */
+  & :deep(svg) {
+    width: 56px;
+    height: 56px;
+    display: block;
+  }
 }
 .app-name {
-  font-size: 26px;
-  font-weight: 800;
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-heavy);
   color: var(--c-text);
 }
 .app-desc {
-  font-size: 14px;
-  color: var(--c-text-faint);
-  margin-top: 4px;
+  font-size: var(--fs-md);
+  color: var(--c-text-faintest);
+  margin-top: var(--sp-1);
   text-wrap: balance;
 }
 .body {
@@ -116,10 +124,10 @@ export default defineComponent({
   -webkit-overflow-scrolling: touch;
 }
 .whatsnew {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: var(--c-text);
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 .ver {
   color: var(--c-soon);
@@ -132,8 +140,8 @@ export default defineComponent({
 }
 .changes li {
   position: relative;
-  padding-left: 20px;
-  font-size: 12px;
+  padding-left: var(--sp-5);
+  font-size: var(--fs-md);
   line-height: 1.4;
   color: var(--c-text-soft);
 
@@ -167,8 +175,15 @@ export default defineComponent({
   }
 }
 .ltm {
-  width: 22px;
-  height: 22px;
+  display: flex;
+  flex-shrink: 0;
+  color: var(--c-text-dim);
+
+  & :deep(svg) {
+    width: 20px;
+    height: 20px;
+    display: block;
+  }
 }
 .heart {
   color: var(--c-heart);
