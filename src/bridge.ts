@@ -428,7 +428,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // platform or a tunnel is exactly where fixes stop. That gate would arm the
   // gesture on the street and disarm it where the reveal matters. The view gate
   // is the strong one, since reaching a timetable takes a deliberate press.
-  const TILT_IDLE_MS = 90_000
+  // Past the 2 minutes the submission QA script spends idling: "After 2 minutes
+  // idle the app is still alive and responsive." At 90s the sensor had already
+  // disarmed by the time that check ends, so a reviewer who idled and then tried
+  // the documented look-up would have found the headline gesture dead and had no
+  // way to know a press would revive it. The extra 90s of standby is worth far
+  // less than the feature reading as broken on review.
+  const TILT_IDLE_MS = 180_000
 
   function tiltShouldBeArmed(): boolean {
     if (!startupOk) return false        // imuControl is ignored before startup lands
