@@ -4,6 +4,30 @@ A running log of every change, newest version first. MetroTracker is a real-time
 DC Metro (WMATA) tracker for the Even Realities G2 smart glasses, with a companion
 phone web-app map.
 
+## v0.7.1
+
+### Glasses UI
+- **The live track view is reachable.** Looking up while a timetable is on screen reveals it; returning to level restores the timetable. It shipped in 0.7.0 with both entry points DEV-gated and no gesture to open them, so this is the release that actually makes it a feature.
+- **Fixed the track's fading end caps rendering roughly three times too tall.** The art is a 6px bar but an image container is invalid below 20px, and the firmware scales a source smaller than its container. This was invisible in the simulator, which draws images at native size, so it only appeared on real hardware. The files are now padded to exactly the container size, which removes the scaling step rather than trying to predict it. Every other image container was audited against its source; these two were the only mismatch.
+
+### Head tilt
+- **Powered only inside a narrow window:** startup succeeded, the app is foregrounded, both the drawn view and the intent are a timetable or the track view, and the board has been touched in the last 90 seconds. The previous IMU controller was deleted in `e075652` for draining the battery, having only ever been stopped from `destroy()`. The sensor is now released synchronously and first on foreground exit, system exit and abnormal exit, none of which released any hardware before.
+- **Deliberately not gated on being in transit,** which sounds right and is not: motion decays to stationary after 120s without a GPS fix, and a platform or tunnel is exactly where fixes stop, so that gate would arm the gesture on the street and disarm it where the reveal matters.
+- **The gesture must be held,** with separate enter and exit angles and a longer dwell on the way back, so reading an arrival board does not trip it and returning to level is not twitchy. Edges are rate-limited, since each one costs a full page rebuild.
+- **Pitch is measured against a resting baseline seeded from a measured constant.** Straight ahead reads -8.5 degrees on real glasses rather than zero, because they sit tilted on the face. Two earlier versions of this were wrong: measuring the absolute angle left only 2 degrees of margin below a held pose, and seeding the baseline from the first sample meant launching while looking down at the phone made "down" the zero, after which no amount of looking up would trigger it.
+- **An arm that produces no reports is retried, then reported.** `imuControl` can resolve successfully and still deliver nothing, which was observed across a page reload, and is indistinguishable from broken code from the outside.
+- A host that does not implement `imuControl` at all is recognised as such and stops being asked, rather than logging a warning on every view change forever.
+
+### Phone app
+- **The What's New backdrop washes toward the page grey** at 70% rather than toward white, matching the design. It is one token with one consumer.
+
+### Internal
+- **A DEV-only diagnostics sink.** On real hardware the console lives in the phone's WebView, which needs remote debugging to read and cannot be pasted from, so anything the app learns on-device was effectively unreachable. Diagnostics now POST to the dev server, which prints them and writes them to `dev-logs/`. Both halves are absent from production builds: the endpoint is `apply: 'serve'` and the client side is behind `import.meta.env.DEV`.
+- **A DEV-only tilt calibration run,** at `?calibrate=1`. Which axis carries pitch and which sign means up cannot be derived at runtime, and cannot be read off a screen either, since looking at one changes the pitch being measured. The glasses drive the whole capture on a timer and ship the numbers out afterwards. Straight ahead is captured twice as a control: if the two disagree by more than the noise band the glasses shifted during the run and the results say so.
+- The measured device facts are recorded in `src/tilt.ts`: it is an accelerometer rather than a rate sensor, units are g, pitch is on x with up positive, and `ImuReportPace.P200` delivers about 5 Hz, so that opaque pacing code is a period in milliseconds.
+- The scroll-based stand-in for the tilt is now gated on the IMU being provably absent rather than on `DEV`, since a DEV build is what runs on the glasses when testing off the dev server. It survives for the simulator, which implements no IMU, and is dead on a real device.
+- `app.json`'s network permission described the map tiles as dark; they have been light since 0.7.0.
+
 ## v0.7.0
 
 ### Phone app

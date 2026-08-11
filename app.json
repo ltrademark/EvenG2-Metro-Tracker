@@ -2,14 +2,14 @@
   "package_id": "com.ltrademark.wmatatracker",
   "edition": "202601",
   "name": "MetroTracker",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "Real-time DC Metro arrivals and live train positions from the official WMATA API, plus dark map tiles from CartoDB.",
+      "desc": "Real-time DC Metro arrivals and live train positions from the official WMATA API, plus light map tiles from CartoDB.",
       "whitelist": [
         "https://api.wmata.com",
         "https://a.basemaps.cartocdn.com",
