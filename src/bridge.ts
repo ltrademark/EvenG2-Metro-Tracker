@@ -6,6 +6,8 @@ import { GlassesDisplay } from './glasses'
 import type { GlassesView } from './glasses'
 import { LocationManager } from './location'
 import { LiveStripController, chooseLineAndDirection } from './live'
+import { TiltDetector, TiltCalibrator, TiltCalibrationRunner } from './tilt'
+import type { ImuSample } from './tilt'
 
 export interface AppBridgeAdapter {
   setStations(stations: Station[]): void
@@ -135,11 +137,17 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   })
 
   const glassesDisplay = new GlassesDisplay(bridge)
-  const ok = await glassesDisplay.startup()
-  if (!ok) {
+  // imuControl is only honoured after a successful createStartUpPageContainer, so
+  // the tilt gesture's arming policy gates on this. Tracked as a mutable flag
+  // rather than the initial result because the retry below can turn it true later.
+  let startupOk = await glassesDisplay.startup()
+  if (!startupOk) {
     console.error('createStartUpPageContainer failed — glasses may not be connected')
     adapter.onStatusChanged('Glasses not ready, retrying…')
-    setTimeout(() => void glassesDisplay.startup(), 5000)
+    setTimeout(async () => {
+      startupOk = await glassesDisplay.startup()
+      syncTilt()
+    }, 5000)
   }
 
   let currentStation: Station | null = null
@@ -154,11 +162,19 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // (glassesDisplay.view). Set synchronously the moment an input arrives, so a
   // tap can't be undone by an auto-refresh that started before it: renders are
   // decided against this after their network await, not against stale state.
-  let viewIntent: Exclude<GlassesView, 'splash'> = 'stations'
+  // 'calibrate' is excluded deliberately: it is a drawn state the DEV calibration
+  // run puts on screen, never something the rider asks for, so nothing assigns it
+  // here. Leaving it in the type let it flow into liveReturnView, which would have
+  // made "dismiss the strip" able to restore a page that no longer exists.
+  let viewIntent: Exclude<GlassesView, 'splash' | 'calibrate'> = 'stations'
   // Where dismissing the live strip returns to. It is an overlay rather than a
   // destination, so it restores whatever was underneath instead of always
   // assuming the timetable.
   let liveReturnView: 'stations' | 'timetable' = 'timetable'
+  // Inputs to the tilt gesture's arming policy. The app launches foregrounded, and
+  // launching is itself an interaction, so both start in the permissive state.
+  let foreground = true
+  let lastInteractionAt = Date.now()
   // Signature of the landing list ([current, ...nearby]). While it's unchanged
   // we refresh only the status text in place, never rebuilding the list — that
   // keeps the native selection cursor from jumping on periodic refreshes.
@@ -171,6 +187,10 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
 
   async function doRefresh(goToTimetable = false, stationOverride?: Station) {
     if (!currentStation) return
+    // The calibration run owns the display while it is up. A GPS fix or a restored
+    // station arriving mid-pose would otherwise repaint the station list over the
+    // instructions and leave the rider holding a pose at nothing.
+    if (calibrationRunner?.running) return
 
     if (goToTimetable) viewIntent = 'timetable'
     if (stationOverride) viewedStation = stationOverride
@@ -220,6 +240,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         await glassesDisplay.showStations(currentStation, nearby, currentDistKm, locationOn, sig)
       }
     }
+
+    // The arming policy keys off the drawn view, so it has to be re-evaluated
+    // wherever the drawn view can change. This is the only place it does, apart
+    // from the input handler's own direct renders.
+    syncTilt()
   }
 
   // Persist the home station across sessions so returning users land on their
@@ -330,6 +355,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // so it is deliberately not on BridgeControls.
   function showLive() {
     if (!currentStation || viewIntent === 'liveview') return
+    if (calibrationRunner?.running) return   // the run owns the display
     liveReturnView = viewIntent
     // Recorded before the render, exactly like a tap, so a refresh already in
     // flight draws the strip rather than the view it is replacing.
@@ -344,6 +370,126 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     void doRefresh()
   }
 
+  // ── Head tilt ──────────────────────────────────────────────────────────
+  //
+  // Look up to reveal the strip, return to level to put the timetable back. The
+  // detector owns the sensor and the gesture; this file owns only the policy for
+  // when the sensor may be powered, because that depends on app state the
+  // detector cannot see.
+  //
+  // Both callbacks are no-ops when the view is already where the edge would take
+  // it, which is what makes a double-press exit safe: dismissing by press leaves
+  // the detector latched "up", so lowering the head fires a dismiss that does
+  // nothing, and the next look up is a real reveal again.
+  // DEV-only telemetry for the gesture. The whole failure mode here is silence:
+  // armed-but-no-samples, samples-but-no-edges and wrong-baseline all look
+  // identical from the outside, so the counters that tell them apart are pushed to
+  // the dev server rather than inferred.
+  const trace = import.meta.env.DEV
+    ? {
+        sysEvents: 0,
+        imuEvents: 0,
+        sysTypes: {} as Record<string, number>,
+        minPitch: Number.POSITIVE_INFINITY,
+        maxPitch: Number.NEGATIVE_INFINITY,
+        reveals: 0,
+        dismisses: 0,
+      }
+    : null
+
+  const tilt = new TiltDetector(
+    bridge,
+    () => {
+      if (trace) trace.reveals++
+      lastInteractionAt = Date.now()
+      showLive()
+    },
+    () => {
+      if (trace) trace.dismisses++
+      lastInteractionAt = Date.now()
+      hideLive()
+    },
+  )
+
+  // DEV only, and only with ?calibrate=1. Which axis carries pitch and which sign
+  // means up cannot be derived at runtime, and cannot be read off a screen either,
+  // since looking at one changes the pitch being measured. So the glasses run the
+  // whole thing themselves on a timer and the numbers are shipped out afterwards.
+  const calibrator =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).has('calibrate')
+      ? new TiltCalibrator()
+      : null
+
+  // The sensor costs battery continuously, so it is powered only in the narrow
+  // window where the gesture can actually do something.
+  //
+  // Deliberately not gated on motion === 'transit', which sounds right and is
+  // wrong: motion decays to stationary after 120s without a GPS fix, and a
+  // platform or a tunnel is exactly where fixes stop. That gate would arm the
+  // gesture on the street and disarm it where the reveal matters. The view gate
+  // is the strong one, since reaching a timetable takes a deliberate press.
+  const TILT_IDLE_MS = 90_000
+
+  function tiltShouldBeArmed(): boolean {
+    if (!startupOk) return false        // imuControl is ignored before startup lands
+    if (!foreground) return false
+    if (calibrator) return true         // calibration needs the sensor on any view
+    // Both the drawn view and the intent have to be somewhere the gesture means
+    // something. The drawn view alone lags by a render, so a back press out of the
+    // timetable would leave the sensor powered over the station list until the
+    // next timer tick; the intent alone leads by a render, which would arm the
+    // gesture before the board it belongs to is actually on screen.
+    const view = glassesDisplay.view
+    const drawnOk = view === 'timetable' || view === 'liveview'
+    const intentOk = viewIntent === 'timetable' || viewIntent === 'liveview'
+    if (!drawnOk || !intentOk) return false
+    // A board left untouched is a board nobody is about to tilt at.
+    return Date.now() - lastInteractionAt <= TILT_IDLE_MS
+  }
+
+  function syncTilt() {
+    tilt.setArmed(tiltShouldBeArmed())
+  }
+
+  // Ship a diagnostic to the dev server. On real hardware the console lives in the
+  // phone's WebView, which needs remote debugging to read and cannot be pasted
+  // from, so the numbers have to be pushed somewhere reachable. The endpoint only
+  // exists while `vite` is serving, and a failure here must never break the flow
+  // being measured.
+  function postDiag(label: string, text: string, data?: unknown) {
+    if (!import.meta.env.DEV) return
+    void fetch('/__diag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, text, data }),
+    }).catch(() => {})
+  }
+
+  // Hands the display back to the app once the run finishes or is cancelled, so a
+  // calibration session ends in a usable app rather than on a dead page.
+  function endCalibration() {
+    startTimer()
+    lastInteractionAt = Date.now()
+    if (currentStation) void doRefresh()
+    else void glassesDisplay.startup()
+  }
+
+  const calibrationRunner = calibrator
+    ? new TiltCalibrationRunner(
+        calibrator,
+        (instruction, countdown, hint) => {
+          void glassesDisplay.showCalibration(instruction, countdown, hint)
+        },
+        (report, snapshot) => {
+          console.log(`[tilt] calibration report\n${report}`)
+          adapter.onStatusChanged(report)
+          postDiag('tilt-calibration', report, snapshot)
+          // Leave the DONE frame up briefly so it is legible, then resume.
+          setTimeout(endCalibration, 2500)
+        },
+      )
+    : null
+
   // View-aware input routing — follows docs pattern:
   // https://hub.evenrealities.com/docs/build/device-apis
   //
@@ -351,8 +497,38 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // sysEvent: foreground lifecycle events AND interactions from createStartUpPageContainer.
   // CLICK_EVENT (0) may be normalised to undefined by the SDK — handle both.
   const unsubscribeEvents = bridge.onEvenHubEvent(event => {
-    const sys = event.sysEvent as { eventType?: number } | undefined
+    const sys = event.sysEvent as { eventType?: number; imuData?: ImuSample } | undefined
     const sysType = sys?.eventType as number | undefined
+
+    // IMU reports arrive several times a second, far more often than every other
+    // event combined, so they are matched first and returned immediately: the
+    // highest-frequency event in the app costs one integer compare.
+    if (trace && sys) {
+      trace.sysEvents++
+      const key = sysType === undefined ? 'undefined' : String(sysType)
+      trace.sysTypes[key] = (trace.sysTypes[key] ?? 0) + 1
+      if (sys.imuData) trace.imuEvents++
+    }
+
+    if (sysType === OsEventTypeList.IMU_DATA_REPORT) {
+      if (sys?.imuData) {
+        // While a calibration run is up, the samples belong to the calibrator
+        // alone. The detector is still armed (that is what powers the sensor) but
+        // must not act: its axis and sign are the very things being measured, so a
+        // guessed threshold could fire a reveal over the instructions mid-pose.
+        if (calibrationRunner?.running) calibrator?.sample(sys.imuData)
+        else tilt.sample(sys.imuData)
+        if (trace && !calibrationRunner?.running) {
+          // Read back what the detector made of the sample. The span of pitch over
+          // a look-up is the number that says whether the thresholds are wrong or
+          // the baseline is.
+          const p = tilt.debug.pitchDeg
+          if (p < trace.minPitch) trace.minPitch = p
+          if (p > trace.maxPitch) trace.maxPitch = p
+        }
+      }
+      return
+    }
 
     // Foreground lifecycle — always sysEvent
     if (sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
@@ -362,9 +538,17 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       // The OS may have torn the page down while backgrounded, so the live
       // containers can't be upgraded in place until they've been rebuilt once.
       glassesDisplay.invalidateLive()
-      startTimer(); void doRefresh(); return
+      foreground = true
+      // Returning to the foreground is itself an interaction, otherwise a board
+      // left on screen past the idle timeout would come back with a dead gesture.
+      lastInteractionAt = Date.now()
+      startTimer(); void doRefresh(); syncTilt(); return
     }
     if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
+      // Hardware first, and synchronously: this path previously released no
+      // hardware at all, which is how the old IMU controller drained the battery.
+      foreground = false
+      tilt.releaseNow()
       stopTimer(); liveController.stop(); return
     }
     // OS is tearing down the plugin — release resources before it terminates.
@@ -372,6 +556,10 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       sysType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
       sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT
     ) {
+      // Sensor off before anything that awaits. The process may not survive long
+      // enough to reach a later line, so the ordering here is load-bearing.
+      foreground = false
+      tilt.releaseNow()
       stopTimer()
       liveController.stop()
       locationManager.stop()
@@ -386,6 +574,12 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       eventType = userEvent.eventType as number | undefined
       // undefined here means CLICK_EVENT (SDK normalisation)
     } else if (sys) {
+      // An IMU report whose eventType the host failed to normalise would fall
+      // through to the undefined-means-click rule below and fire a press *per
+      // sample*, flipping the strip at the report rate and flooding the render
+      // queue. The payload is the reliable tell, so it is checked before the
+      // normalisation rather than trusting eventType alone.
+      if (sys.imuData) return
       // sysEvent-only (startup page or double-press).
       // SDK may normalise CLICK_EVENT=0 to undefined on real hardware — treat that as a click.
       // FOREGROUND_ENTER/EXIT are already handled above, so undefined here is safe to treat as click.
@@ -402,14 +596,19 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       return
     }
 
-    // DEV only. Scroll stands in for the head tilt, because the simulator has no
-    // head to tilt and its automation API sends glasses input only, so the web
-    // app's own debug button is out of reach from a test. Scroll is unused in both
-    // views this touches: the timetable's lists are display-only, and the strip
-    // has nothing to scroll. Inside the strip it also nudges the position, which
-    // is the only way to sweep it for screenshots given the location API is absent
-    // there too, so the strip would otherwise never move.
-    if (import.meta.env.DEV) {
+    // Scroll stands in for the head tilt where there is no head to tilt: the
+    // simulator does not implement imuControl at all, and its automation API sends
+    // glasses input only, so without this the live strip is unreachable there and
+    // cannot be verified off-device. Inside the strip scroll also nudges the
+    // position, the only way to sweep it for screenshots given the location API is
+    // absent too.
+    //
+    // Gated on the IMU being *provably absent*, not merely on DEV, because a DEV
+    // build is exactly what runs on the glasses when testing off the dev server:
+    // keying on DEV alone left a second, redundant way to open the strip on real
+    // hardware, where the tilt is the intended and only trigger. imuControl
+    // succeeds there, so this whole block is dead on a real device.
+    if (import.meta.env.DEV && tilt.unavailable) {
       const up = eventType === OsEventTypeList.SCROLL_TOP_EVENT
       const down = eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT
       if (glassesDisplay.view === 'timetable' && up) {
@@ -427,7 +626,24 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     const isDoublePress = eventType === OsEventTypeList.DOUBLE_CLICK_EVENT
     if (!isPress && !isDoublePress) return
 
+    // A deliberate press is the interaction the tilt idle timeout measures from.
+    lastInteractionAt = Date.now()
+
     switch (glassesDisplay.view) {
+      // The run drives itself from a timer, so the only input it takes is an
+      // abort. A single press is deliberately inert: the controls sit behind the
+      // ear and on the ring where they are easy to catch while moving the head,
+      // and losing the run to a stray touch mid-pose would be worse than
+      // ignoring it.
+      case 'calibrate':
+        if (isDoublePress) {
+          calibrationRunner?.cancel()
+          console.log('[tilt] calibration cancelled')
+          adapter.onStatusChanged('Tilt calibration cancelled')
+          endCalibration()
+        }
+        break
+
       case 'splash':
         if (isPress) {
           viewIntent = 'stations'
@@ -480,7 +696,58 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
         }
         break
     }
+
+    // Several branches above change the intent without going through doRefresh,
+    // so the policy is re-evaluated here too. Leaving a board disarms on the spot
+    // rather than waiting up to 30s for the next tick to notice.
+    syncTilt()
   })
+
+  if (trace) {
+    // Every 5s, and only when something moved, so a parked app does not fill the
+    // log. Everything needed to tell the silent failures apart is in one line:
+    // whether the sensor is armed, whether reports are arriving, what pitch they
+    // produce, and whether the arming policy is even satisfied.
+    setInterval(() => {
+      const d = tilt.debug
+      const span =
+        trace.minPitch === Number.POSITIVE_INFINITY
+          ? 'no samples'
+          : `pitch ${trace.minPitch.toFixed(1)}..${trace.maxPitch.toFixed(1)} deg`
+      const line = [
+        `armed=${d.armed}`,
+        `unavailable=${d.unavailable}`,
+        `state=${d.state}`,
+        span,
+        `baseline restAxis=${d.restAxis.toFixed(4)} restMag=${d.restMag.toFixed(4)}`,
+        `last=${JSON.stringify(d.last)}`,
+        `imuEvents=${trace.imuEvents}/${trace.sysEvents} sysTypes=${JSON.stringify(trace.sysTypes)}`,
+        `edges: ${trace.reveals} reveal / ${trace.dismisses} dismiss`,
+        `drawn=${glassesDisplay.view} intent=${viewIntent}`,
+        `armPolicy=${tiltShouldBeArmed()}`,
+        `idle=${Math.round((Date.now() - lastInteractionAt) / 1000)}s`,
+      ].join('  ')
+
+      const moved = trace.sysEvents > 0 || trace.reveals > 0 || trace.dismisses > 0
+      if (moved) postDiag('tilt-trace', line)
+
+      trace.sysEvents = 0
+      trace.imuEvents = 0
+      trace.sysTypes = {}
+      trace.minPitch = Number.POSITIVE_INFINITY
+      trace.maxPitch = Number.NEGATIVE_INFINITY
+      trace.reveals = 0
+      trace.dismisses = 0
+    }, 5000)
+  }
+
+  // Best effort only. A WebView kill delivers nothing and ABNORMAL_EXIT may never
+  // arrive, so these are a second chance at releasing the sensor rather than a
+  // guarantee. The arming policy, not the teardown, is what actually protects the
+  // battery.
+  const releaseTilt = () => tilt.releaseNow()
+  window.addEventListener('pagehide', releaseTilt)
+  window.addEventListener('beforeunload', releaseTilt)
 
   try {
     bridge.setBackgroundState?.('state', () => ({
@@ -530,7 +797,20 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     }
   }
 
-  startTimer()
+  if (calibrationRunner) {
+    // The run owns the display for its duration, so the refresh timer stays off:
+    // a 30s tick landing mid-pose would repaint the station list over the
+    // instructions. endCalibration starts it once the run is over.
+    //
+    // syncTilt arms on any view while calibrating, but only once startup has
+    // landed, which it has by here.
+    syncTilt()
+    console.log('[tilt] calibration starting')
+    adapter.onStatusChanged('Tilt calibration running, follow the glasses.')
+    calibrationRunner.start()
+  } else {
+    startTimer()
+  }
 
   return {
     pinStation(code: string) {
@@ -570,10 +850,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       locationManager.start()
     },
     destroy() {
+      tilt.releaseNow()      // hardware first, same reasoning as the exit events
       stopTimer()
       liveController.stop()
       locationManager.stop()
       unsubscribeEvents()
+      window.removeEventListener('pagehide', releaseTilt)
+      window.removeEventListener('beforeunload', releaseTilt)
     },
   }
 }

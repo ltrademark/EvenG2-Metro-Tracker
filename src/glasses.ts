@@ -8,7 +8,7 @@ import type {
 import type { Station, Train } from './wmata'
 import { APP_VERSION } from './version'
 
-export type GlassesView = 'splash' | 'stations' | 'timetable' | 'liveview'
+export type GlassesView = 'splash' | 'stations' | 'timetable' | 'liveview' | 'calibrate'
 
 // One stop on the live strip. The kind only decides which glyph is drawn; which
 // stops are transfers is route topology, so it's decided by the caller.
@@ -282,9 +282,12 @@ const CURRENT_GLYPH = '●'
 // The rail the stops sit on: a bordered text box with no interior, the same trick
 // as the timetable's divider. Everything vertical derives from its centre line.
 //
-// It is deliberately kept thin. A 12px rail matching the gradient art's own height
-// looks better on its own, but it swallows the 20px stop glyphs, leaving only a
-// sliver of each circle showing above and below. Beads on a wire need a wire.
+// It is deliberately kept thin. A thicker rail looks better on its own, but it
+// swallows the 20px stop glyphs, leaving only a sliver of each circle showing
+// above and below. Beads on a wire need a wire.
+//
+// RAIL_H must equal the height of the drawn bar inside the gradient art, since
+// the caps continue this line out to both ends. That bar is 6px.
 const RAIL_MID = 105
 const RAIL_H   = 6
 const RAIL_BW  = RAIL_H / 2   // border with no interior left = a solid bar
@@ -294,10 +297,18 @@ const RAIL_W   = STRIP_W - (GRAD_W - 2) * 2
 const RAIL_Y   = RAIL_MID - RAIL_H / 2   // 102
 
 // Gradient caps fading the rail out at both ends.
+//
+// The art is a 6px bar, but an image container is invalid below 20px tall, so the
+// files are padded to a transparent 32x20 with the bar on rows 7-12 — exactly
+// where GRAD_Y puts it over the rail. The padding is not cosmetic: the firmware
+// scales a source that is smaller than its container, so the unpadded 32x6 files
+// rendered roughly 3.3x too tall on real hardware while the emulator drew them at
+// native size and hid the problem. Source dimensions must stay equal to
+// GRAD_W x GRAD_H, or the caps will not match the rail they continue.
 const GRAD_L_URL = '/icons/grad_left.png'
 const GRAD_R_URL = '/icons/grad_right.png'
-const GRAD_H = 20   // SDK image containers are invalid below 20px tall
-const GRAD_Y = RAIL_MID - GRAD_H / 2
+const GRAD_H = 20
+const GRAD_Y = RAIL_MID - GRAD_H / 2   // 95, so the bar's rows 7-12 land on 102..107
 const GRAD_R_X = STRIP_R - GRAD_W
 
 // pretext measures width only, so where the ink sits inside the 27px line box is
@@ -461,6 +472,11 @@ const CLOCK_ID: Record<Exclude<GlassesView, 'splash'>, number> = {
   stations: 2,
   timetable: 8,
   liveview: 8,
+  // The calibration page has no clock. updateStatus is never reached while it is
+  // up (the refresh timer is stopped for the duration), and 0 is not a valid
+  // container ID, so a write that should be impossible fails loudly rather than
+  // landing on a real container and corrupting the instructions mid-pose.
+  calibrate: 0,
 }
 
 export class GlassesDisplay {
@@ -621,7 +637,7 @@ export class GlassesDisplay {
   // ── Splash ─────────────────────────────────────────────────────────────
   //
   //   ID 1 — logo image            centered horizontally
-  //   ID 2 — version (e.g. "v0.7.0") top-left (left-anchored so it never overflows)
+  //   ID 2 — version (e.g. "v0.7.1") top-left (left-anchored so it never overflows)
   //   ID 3 — "METRO TRACKER"       below logo
   //   ID 4 — "Waiting for location…"  CTA (splash auto-dismisses on GPS lock)
 
@@ -690,6 +706,48 @@ export class GlassesDisplay {
     }
 
     return result === 0
+  }
+
+  // ── Tilt calibration (DEV only) ────────────────────────────────────────
+  //
+  // A self-driving page: it tells the rider which way to look and counts down,
+  // so the poses are captured without touching a control. That matters because
+  // the G2's controls are behind the ear and on the ring rather than under the
+  // instructions, and a long press exits the app, so a press-driven wizard put
+  // the exit gesture right next to the capture gesture.
+  //
+  // Rebuilt on every tick rather than upgraded in place. With no images to
+  // re-push a rebuild is a single BLE call, exactly what an upgrade costs, and it
+  // buys correct centring: textContainerUpgrade carries content without geometry,
+  // so a centred line cannot be re-centred as its width changes.
+  //
+  // The title carries isEventCapture because a page without one receives no input
+  // at all, and cancelling has to stay possible while this is on screen.
+  async showCalibration(instruction: string, countdown: string, hint: string): Promise<void> {
+    await this._enqueue(async () => {
+      const centred = (id: number, name: string, y: number, s: string, isEvent = false) => {
+        const w = getTextWidth(s)
+        return txt(id, name, Math.round((W - w) / 2), y, w + SAFE, LH, s, isEvent)
+      }
+      await withTimeout(
+        this._bridge.rebuildPageContainer({
+          containerTotalNum: 4,
+          textObject: [
+            centred(1, 'ctitle', 30, 'TILT CALIBRATION', true),
+            centred(2, 'cinstr', 110, instruction),
+            centred(3, 'ccount', 145, countdown),
+            centred(4, 'chint', 240, hint),
+          ],
+        }),
+        'rebuildPageContainer(calibrate)',
+      )
+      // Claimed only after the rebuild lands, matching every other view: an input
+      // arriving mid-render must route against what is actually on screen.
+      this._view = 'calibrate'
+      // The live view's in-place upgrades assume containers it created. This page
+      // replaced them, so the next live render has to rebuild.
+      this._liveDirty = true
+    })
   }
 
   // ── Station list ───────────────────────────────────────────────────────
