@@ -19,7 +19,7 @@
       </button>
 
       <button class="loc-btn" @click="recenter" aria-label="My location">
-        <span class="loc-ic" v-html="locIconSvg"></span>
+        <span class="loc-ic" :style="{ color: locIconColor }" v-html="locIconSvg"></span>
       </button>
     </div>
 
@@ -236,10 +236,14 @@ export default defineComponent({
     //   GPS, panned   → off + blue
     //   GPS, centered → on  + blue
     locIconSvg(): string {
-      const haveGps = this.userLat !== null
-      const centered = haveGps && this.centeredOnUser
-      const color = haveGps ? '#1155ee' : '#ffffff'
-      return (centered ? locOnRaw : locOffRaw).replace(/fill="white"/g, `fill="${color}"`)
+      return this.userLat !== null && this.centeredOnUser ? locOnRaw : locOffRaw
+    },
+    // Coloured through CSS rather than by rewriting the markup. The icons declare
+    // fill="currentColor", so inheriting a colour from the wrapper cannot silently
+    // stop working: string surgery against a literal fill broke the moment the
+    // assets were re-exported without that exact attribute, and did so invisibly.
+    locIconColor(): string {
+      return this.userLat !== null ? 'var(--c-accent)' : 'var(--c-text)'
     },
   },
 
