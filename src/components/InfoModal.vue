@@ -59,7 +59,7 @@ export default defineComponent({
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--c-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -71,16 +71,16 @@ export default defineComponent({
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  background: #111;
-  border: 1px solid #262626;
-  border-radius: 18px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-xl);
   overflow: hidden;
 }
 .card-head {
   position: relative;
   text-align: center;
   padding: 20px;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid var(--c-border-subtle);
 }
 .close {
   position: absolute;
@@ -96,7 +96,7 @@ export default defineComponent({
 .app-icon {
   width: 96px;
   height: 96px;
-  border-radius: 22px;
+  border-radius: var(--r-2xl);
   margin-bottom: 12px;
 }
 .app-name {
@@ -135,7 +135,7 @@ export default defineComponent({
   padding-left: 20px;
   font-size: 12px;
   line-height: 1.4;
-  color: #e2e2e2;
+  color: var(--c-text-soft);
 
   &::before {
     content: '•';
@@ -150,7 +150,7 @@ export default defineComponent({
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-top: 1px solid #1e1e1e;
+  border-top: 1px solid var(--c-border-subtle);
 }
 .attrib {
   display: flex;
@@ -171,21 +171,21 @@ export default defineComponent({
   height: 22px;
 }
 .heart {
-  color: #e2533f;
+  color: var(--c-heart);
 }
 .report {
   background: transparent;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--c-border);
   color: var(--c-text-muted);
   font-size: 14px;
   font-weight: 600;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--r-xs);
   cursor: pointer;
   flex-shrink: 0;
 
   &:active {
-    background: #1d1d1d;
+    background: var(--c-surface-hover);
   }
 }
 </style>

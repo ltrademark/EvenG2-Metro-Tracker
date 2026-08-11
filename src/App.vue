@@ -49,7 +49,7 @@ import { initBridge } from './bridge'
 import type { BridgeControls } from './bridge'
 import { wmataClient, bearingDeg } from './wmata'
 import type { Station, Train, PlacedTrain } from './wmata'
-import { lineIconUrl } from './lineIcons'
+import { lineIconUrl, lineColor } from './lineIcons'
 import { APP_VERSION } from './version'
 import StationPanel from './components/StationPanel.vue'
 import SearchBar from './components/SearchBar.vue'
@@ -62,15 +62,6 @@ import dir2Raw from './assets/Train_dir_2.svg?raw'
 import stationDotRaw from './assets/Station_dot.svg?raw'
 import stationConnRaw from './assets/Station_dot--connection.svg?raw'
 import pinUser from './assets/Pindrop.svg'
-
-const LINE_COLORS: Record<string, string> = {
-  RD: '#E31937',
-  BL: '#0076C0',
-  OR: '#F7941D',
-  SV: '#A1A2A1',
-  GR: '#0DA94F',
-  YL: '#FFD200',
-}
 
 // WMATA refreshes train positions every ~7–10s, so 10s polling stays fresh
 // without redundant calls (well within the 50k/day, 10/s rate limits).
@@ -148,7 +139,7 @@ function segNormalPx(map: L.Map, latlngs: L.LatLng[], idx: number): { c: L.Point
 //   geomBearing  = line geometry direction (drives the ribbon-side offset)
 const TRAIN_SIZE = 26
 function trainIcon(line: string, bearing: number, geomBearing: number): L.DivIcon {
-  const color = LINE_COLORS[line] ?? '#888'
+  const color = lineColor(line)
   // Pick the mirror whose arrow side matches travel (E-pointing dir 1 for
   // eastward travel, W-pointing dir 2 for westward) so same-direction trains
   // look identical, then rotate so the arrow points exactly along travel.
@@ -448,7 +439,9 @@ export default defineComponent({
           icon: stationDotIcon(isConnection),
           interactive: true,
         })
-          .bindTooltip(station.name)
+          // Classed so it can be themed. Unclassed, Leaflet's own stylesheet wins
+          // and the tooltip renders as light-on-white inside an all-dark UI.
+          .bindTooltip(station.name, { className: 'station-tip' })
           .addTo(p.map)
         marker.on('click', () => this.pinStation(station.code))
         p.stationMarkers.push({ station: { ...station, lines }, marker, isConnection })
@@ -562,7 +555,7 @@ export default defineComponent({
         if (path.length < 2) continue
         const center = path.map(pt => L.latLng(pt.lat, pt.lon))
         const poly = L.polyline(center, {
-          color: LINE_COLORS[line] ?? '#888',
+          color: lineColor(line),
           weight: LINE_W,
           opacity: 0.95,
           pane: 'lines',
@@ -716,7 +709,7 @@ body,
   height: 36px;
   padding: 0 12px 0 8px;
   border: 1px solid var(--c-border);
-  border-radius: 18px;
+  border-radius: var(--r-xl);
   background: rgba(var(--c-panel-rgb), 0.9);
   color: var(--c-text-dim);
   font-size: 13px;
@@ -734,7 +727,7 @@ body,
   right: 14px;
   z-index: 500;
   padding: 6px 12px;
-  border-radius: 14px;
+  border-radius: var(--r-md);
   background: rgba(var(--c-panel-rgb), 0.85);
   color: var(--c-text-dim);
   font-size: 12px;
@@ -769,7 +762,7 @@ body,
 .live-dot {
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: var(--r-round);
   background: var(--c-live);
   flex-shrink: 0;
 }
@@ -811,24 +804,44 @@ body,
   transition: 335ms linear all;
 }
 
+/* Station name tooltip. Leaflet ships a light theme for these, so every
+   property it sets has to be answered or the tooltip arrives white. */
+.station-tip.leaflet-tooltip {
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-xs);
+  box-shadow: var(--shadow-popup);
+  color: var(--c-text-soft);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  padding: 4px 8px;
+
+  /* The callout arrow is a bordered pseudo-element, coloured independently of
+     the bubble, so it stays light unless it is set too. */
+  &.leaflet-tooltip-top::before { border-top-color: var(--c-surface-raised); }
+  &.leaflet-tooltip-bottom::before { border-bottom-color: var(--c-surface-raised); }
+  &.leaflet-tooltip-left::before { border-left-color: var(--c-surface-raised); }
+  &.leaflet-tooltip-right::before { border-right-color: var(--c-surface-raised); }
+}
+
 /* Tap-a-train popup (dark theme — scoped class beats Leaflet's defaults) */
 .train-popup-wrap {
   & .leaflet-popup-content-wrapper {
-    background: #141414;
+    background: var(--c-surface-raised);
     color: var(--c-text-soft);
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--c-border-soft);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-popup);
   }
   & .leaflet-popup-content {
     margin: 10px 14px;
   }
   & .leaflet-popup-tip {
-    background: #141414;
-    border: 1px solid #2a2a2a;
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border-soft);
   }
   & .leaflet-popup-close-button {
-    color: #777;
+    color: var(--c-text-fainter);
   }
 }
 .train-popup {
@@ -849,7 +862,7 @@ body,
   & .tp-meta {
     margin-top: 4px;
     font-size: 12px;
-    color: #9a9a9a;
+    color: var(--c-text-faint);
   }
 }
 
@@ -861,7 +874,7 @@ body,
   width: 56px;
   height: 56px;
   border: 1px solid var(--c-border);
-  border-radius: 50%;
+  border-radius: var(--r-round);
   background: rgba(var(--c-panel-rgb), 0.9);
   display: flex;
   align-items: center;

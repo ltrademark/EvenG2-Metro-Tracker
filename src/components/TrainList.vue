@@ -44,7 +44,7 @@ export default defineComponent({
 .empty {
   padding: 28px;
   text-align: center;
-  color: #555;
+  color: var(--c-text-ghost);
   font-size: 14px;
 }
 .train-row {

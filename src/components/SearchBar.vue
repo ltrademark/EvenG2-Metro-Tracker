@@ -111,8 +111,8 @@ export default defineComponent({
   height: 52px;
   padding: 0 8px 0 16px;
   border-radius: var(--r-pill);
-  background: rgba(20, 20, 20, 0.9);
-  border: 1px solid #2a2a2a;
+  background: rgba(var(--c-surface-raised-rgb), 0.9);
+  border: 1px solid var(--c-border-soft);
   backdrop-filter: blur(8px);
 
   &.active {
@@ -156,14 +156,14 @@ export default defineComponent({
 .results {
   list-style: none;
   margin: 8px 0 0;
-  border-radius: 16px;
-  background: rgba(12, 12, 12, 0.97);
-  border: 1px solid #242424;
+  border-radius: var(--r-lg);
+  background: rgba(var(--c-bg-rgb), 0.97);
+  border: 1px solid var(--c-border-soft);
   backdrop-filter: blur(8px);
   max-height: 46vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  box-shadow: 0 10px 20px -5px rgba(0,0,0,0.65);
+  box-shadow: var(--shadow-dropdown);
 }
 .result {
   display: flex;
@@ -177,7 +177,7 @@ export default defineComponent({
   }
 }
 .result + .result {
-  border-top: 1px solid #1b1b1b;
+  border-top: 1px solid var(--c-border-subtle);
 }
 .result-name {
   flex: 1;

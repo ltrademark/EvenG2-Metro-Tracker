@@ -1,16 +1,47 @@
+/* Design tokens.
+ *
+ * Every colour, radius and type size the web app uses is declared here, so a
+ * redesign is a change to this file rather than a hunt through five components.
+ * Before this, 38 colour literals lived in component styles and in JavaScript,
+ * which meant changing --c-accent left the location button on its own hardcoded
+ * blue, and the six near-identical border greys below were never a decision
+ * anybody made.
+ *
+ * The colour values are exactly what they were; the names are the new part.
+ */
 :root {
-  /* Colors */
-  --c-border: #464646;
+  /* ── Surfaces ─────────────────────────────────────────────────────────
+   * Elevation rather than hue: each step is the next layer up off the page.
+   */
+  --c-bg: #0a0a0a;
+  --c-surface: #111;            /* modal card */
+  --c-surface-raised: #141414;  /* popups and dropdowns floating over the map */
+  --c-surface-hover: #1d1d1d;
+
+  /* The bottom sheet's gradient. */
+  --c-panel-top: #0f0f0f;
+  --c-panel-bottom: #272727;
+
+  /* Channel forms of the above. A var() cannot be interpolated inside rgba(),
+   * so anything translucent needs its channels as a separate token. */
+  --c-bg-rgb: 10, 10, 10;
+  --c-panel-rgb: 15, 15, 15;
+  --c-surface-raised-rgb: 20, 20, 20;
+
+  /* ── Borders ──────────────────────────────────────────────────────────
+   * Three weights. The literals these replace ranged over six values within
+   * 0x1b to 0x46, differences of two or three points that no eye resolves.
+   */
+  --c-border-subtle: #1e1e1e;   /* hairline rules between rows */
+  --c-border-soft: #2a2a2a;     /* edge of a floating surface */
+  --c-border: #464646;          /* pills and buttons */
+
   --c-accent: #1155ee;
   --c-accent-rgb: 17, 85, 238;
 
-  --c-panel-top: #0f0f0f;
-  --c-panel-bottom: #272727;
-  /* #0F0F0F as channels, for the translucent floating map controls */
-  --c-panel-rgb: 15, 15, 15;
-
-  --c-bg: #0a0a0a;
-
+  /* ── Text ─────────────────────────────────────────────────────────────
+   * Brightest to faintest.
+   */
   --c-text: #fff;
   --c-text-soft: #eee;
   --c-text-muted: #f2f2f2;
@@ -18,9 +49,57 @@
   --c-text-faint: #8a8a8a;
   --c-text-fainter: #7a7a7a;
   --c-text-faintest: #6a6a6a;
+  --c-text-ghost: #555;         /* empty-state copy */
 
+  /* ── Semantic ─────────────────────────────────────────────────────────── */
   --c-live: #ff3b30;
   --c-soon: #3cd35c;
+  --c-heart: #e2533f;
 
+  --c-scrim: rgba(0, 0, 0, 0.65);
+  --shadow-popup: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-dropdown: 0 10px 20px -5px rgba(0, 0, 0, 0.65);
+
+  /* ── Radius ───────────────────────────────────────────────────────────
+   * Every distinct value currently in use, named rather than collapsed.
+   * Collapsing them is a visible change and belongs to the redesign, not to
+   * naming things.
+   */
+  --r-xs: 10px;
+  --r-sm: 12px;
+  --r-md: 14px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-2xl: 22px;
+  --r-sheet: 25px;   /* the bottom panel's top corners */
   --r-pill: 26px;
+  --r-round: 50%;
+
+  /* ── Spacing and type ─────────────────────────────────────────────────
+   * Declared for the redesign to lay out against. Deliberately NOT yet
+   * adopted: 151 raw px literals remain in the components, and rewriting them
+   * before we know which values survive the new design would be churn we would
+   * only have to redo. The type steps are the sizes actually in use today.
+   */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 28px;
+  --sp-8: 32px;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 17px;
+  --fs-xl: 18px;
+  --fs-2xl: 20px;
+  --fs-3xl: 26px;
+
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-heavy: 800;
 }

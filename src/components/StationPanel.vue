@@ -58,7 +58,6 @@ export default defineComponent({
 
 <style scoped>
 .panel {
-  --corner-rounding: 25px;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -66,7 +65,7 @@ export default defineComponent({
   overflow: hidden;
   background: linear-gradient(180deg, var(--c-panel-top) 0%, var(--c-panel-bottom) 100%);
   border-top: 1px solid var(--c-border);
-  border-radius: var(--corner-rounding) var(--corner-rounding) 0 0;
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   position: relative;
   z-index: 1;
 }
