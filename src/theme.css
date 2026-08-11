@@ -54,9 +54,11 @@
   --c-soon: #11c808;
   --c-heart: #e2533f;
 
-  /* The modal washes the page out toward white rather than darkening it, which
-   * is the opposite of the usual scrim and is what the mockup shows. */
-  --c-scrim: rgba(255, 255, 255, 0.72);
+  /* The modal washes the page out rather than darkening it, which is the
+   * opposite of the usual scrim and is what the mockup shows. It washes toward
+   * the page grey, not toward white: white read as a haze over the map and lost
+   * the tonal continuity with the panel behind it. */
+  --c-scrim: rgba(238, 238, 238, 0.7);
 
   /* ── Radius ───────────────────────────────────────────────────────────
    * --r-control is the corner shared by the search field and every button,
