@@ -4,6 +4,38 @@ A running log of every change, newest version first. MetroTracker is a real-time
 DC Metro (WMATA) tracker for the Even Realities G2 smart glasses, with a companion
 phone web-app map.
 
+## v0.7.0
+
+### Phone app
+- **Redesigned to the Even Realities light theme.** Grey page, white cards, dark ink, and the map on light tiles instead of dark. Colours and geometry were sampled and measured off the mockups rather than estimated, so a card is exactly `#FFFFFF` on `#EEEEEE`, the arrival green is `#11C808`, and the gutters, card heights and badge sizes come from the same source.
+- **Search moved into the flow** beneath the host's title bar, and its results now take over the whole area below the field rather than dropping a list over the map. The chevron is gone: tapping the field already opened the list.
+- **Arrivals are discrete cards** with gaps, rather than rows in a divided list, and the line badges are smaller to match.
+- **The boarding panel is flat.** It used to be a rounded sheet floating over a map that extended behind it; the map no longer underlaps and centring no longer compensates for an underlap that is not there.
+- **No drop shadows anywhere.** This is also what made the panel look faintly two-toned: the background was a single flat colour all along, but each arrival card cast a shadow into the gap below it, banding the gutter.
+- **Floating map controls** are solid white with a hairline, sharing one corner radius with the search field. The Live View mark uses its own icon.
+- **The station name tooltip is themed.** It bound no class, so Leaflet's own stylesheet won and it rendered light-on-white.
+- **Fixed the location, help, app and Ltrademark marks vanishing.** All four were white fills, invisible the moment the surfaces behind them turned white. They now declare `fill="currentColor"` and take their colour from CSS, which cannot silently break the way replacing a literal fill did.
+- **Fixed the modal version.** It read the changelog's own version string, which had drifted a release behind the app.
+
+### Glasses UI
+- **Fixed the display wedging after a refresh.** The render lock was held across unbounded BLE and network awaits and released only in a `finally`, so one call that never settled left it set forever: taps stopped opening the timetable while on-device scrolling kept working, and only restarting the plugin recovered it. Renders are now serialised through a queue that releases on every path, every bridge call is bounded, and a render arriving mid-flight is queued rather than dropped.
+- **Upcoming stops while riding.** The station list orders by the line's own sequence in the direction of travel instead of by raw distance, so stops behind you stop appearing simply because they are still close. Falls back to distance whenever the answer is not confident.
+- **An in-transit badge** beside the location badge while moving.
+- **A live track view**, showing where you are along the line and where the trains around you are, in place of the timetable's arrivals panel so the station list beside it never moves. **Not yet reachable:** the head tilt meant to reveal it is not built, so both entry points are DEV-only and it does not ship accessible.
+- Nearby stations no longer list a dual-platform interchange twice, since WMATA records such a station once per platform and both entries sort to the top together.
+
+### Reliability
+- WMATA calls are bounded by an abort timeout. `fetch` has no default, so a request made in a tunnel could stay pending indefinitely.
+- Train positions are throttled inside the client, so a second consumer costs no extra API calls.
+- An arrival time that is not a number no longer renders as a bare unit. WMATA returns it empty near closing.
+- Image pushes to the glasses check their result, which was previously discarded, so an asset the firmware rejects says so instead of leaving a blank container.
+
+### Internal
+- Every colour and radius lives in `src/theme.css`. 38 literals across the components and in JavaScript became tokens, and the six near-identical border greys became three named weights.
+- Spacing, type and weight scales are declared for layout to use. Not yet adopted: 151 raw px literals remain in the components.
+- WMATA line colours moved behind a `lineColor()` helper, so the grey fallback is no longer repeated at each call site.
+- The drawn line path and its station codes are built from one deduplicated anchor list, so an index into one can no longer disagree with a position on the other.
+
 ## v0.6.0
 
 ### Glasses UI
