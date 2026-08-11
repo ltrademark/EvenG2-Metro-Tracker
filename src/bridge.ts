@@ -1,10 +1,11 @@
 import { waitForEvenAppBridge, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
-import { wmataClient, bearingDeg } from './wmata'
+import { wmataClient } from './wmata'
 import type { Station, Train } from './wmata'
 import { GlassesDisplay } from './glasses'
 import type { GlassesView } from './glasses'
 import { LocationManager } from './location'
+import { LiveStripController, chooseLineAndDirection } from './live'
 
 export interface AppBridgeAdapter {
   setStations(stations: Station[]): void
@@ -23,6 +24,11 @@ export interface BridgeControls {
   unpin(): void
   forceRefresh(): Promise<void>
   startLocation(): void
+  // Reveal and dismiss the glasses live strip. One entry point, shared by the DEV
+  // affordance and (later) the head-tilt gesture, so both go through exactly the
+  // same state changes.
+  showLive(): void
+  hideLive(): void
   destroy(): void
 }
 
@@ -43,6 +49,17 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+// Identity of a station as a *place* rather than as a platform.
+//
+// WMATA lists a dual-platform interchange once per platform: Gallery Pl-Chinatown
+// is both B01 (with F01 as its secondary) and F01 (with B01 as its secondary). The
+// two entries sit metres apart, so a distance sort puts them side by side and the
+// same name appears twice in the list. Keying on the sorted pair of codes gives
+// both entries the same identity regardless of which one we happen to meet first.
+function stationKey(s: Station): string {
+  return s.secondaryCode ? [s.code, s.secondaryCode].sort().join('+') : s.code
+}
+
 function nearbyStations(
   stations: Station[],
   lat: number,
@@ -51,65 +68,56 @@ function nearbyStations(
   limit = 7,
 ): Station[] {
   if (!lat && !lon) return []
+  const seen = new Set<string>()
   return stations
     .filter(s => s.code !== excludeCode && s.secondaryCode !== excludeCode)
     .map(s => ({ s, d: haversineKm(lat, lon, s.lat, s.lon) }))
     .sort((a, b) => a.d - b.d)
+    // Deduplicate after sorting so the platform we keep is the nearer of the pair,
+    // and before slicing so a collapsed duplicate doesn't cost a list slot.
+    .filter(x => {
+      const key = stationKey(x.s)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     .slice(0, limit)
     .map(x => x.s)
 }
-
-// Minimum alignment between the heading and the first step of a candidate
-// direction for it to count as "the way we're going" — cos(θ), so this admits
-// roughly ±78°. Below it the direction is a guess and distance ordering is the
-// honest answer.
-const MIN_HEADING_ALIGNMENT = 0.2
 
 // The stops ahead of `current`, in the order they'll be reached.
 //
 // Ordering by raw distance puts stations *behind* the train in the list simply
 // because they're still close. Walking the line's own station sequence in the
-// direction of travel gives the upcoming-stops view instead. Direction is chosen
-// by comparing the heading against the first step each way, which also settles
-// which line we're on at a multi-line station.
+// direction of travel gives the upcoming-stops view instead.
 //
 // Returns null when there's no confident answer — no route geometry loaded yet,
-// current station absent from the sequence, or a heading that doesn't align with
-// either direction. Callers fall back to distance ordering.
-// Exported so the direction-choosing logic can be exercised against real WMATA
-// route topology without standing up the whole bridge.
+// current station absent from the sequence, a heading that doesn't align with
+// either direction, or nothing ahead (a terminus pointing off the end of its own
+// line). Callers fall back to distance ordering.
+// Exported so the ordering can be exercised against real WMATA route topology
+// without standing up the whole bridge.
 export function journeyStations(current: Station, heading: number, limit = 7): Station[] | null {
+  const chosen = chooseLineAndDirection(current, heading)
+  if (!chosen) return null
+
   const ownCodes = new Set(
     [current.code, current.secondaryCode].filter((c): c is string => c != null),
   )
-  let best: { stations: Station[]; alignment: number } | null = null
+  const seq = wmataClient.getLineStationCodes(chosen.line)
+  const here = seq.findIndex(c => ownCodes.has(c))
+  if (here < 0) return null
 
-  for (const line of current.lines) {
-    const seq = wmataClient.getLineStationCodes(line)
-    if (seq.length < 2) continue
-    const here = seq.findIndex(c => ownCodes.has(c))
-    if (here < 0) continue
-
-    for (const step of [1, -1]) {
-      const nextStation = wmataClient.getStationByCode(seq[here + step] ?? '')
-      if (!nextStation) continue
-      const stepBearing = bearingDeg(current.lat, current.lon, nextStation.lat, nextStation.lon)
-      const alignment = Math.cos(((stepBearing - heading) * Math.PI) / 180)
-      if (best && alignment <= best.alignment) continue
-
-      const ahead: Station[] = []
-      for (let i = here + step; i >= 0 && i < seq.length && ahead.length < limit; i += step) {
-        const station = wmataClient.getStationByCode(seq[i])
-        if (!station) continue
-        if (ownCodes.has(station.code)) continue
-        if (ahead.some(s => s.code === station.code)) continue
-        ahead.push(station)
-      }
-      if (ahead.length) best = { stations: ahead, alignment }
-    }
+  const ahead: Station[] = []
+  for (let i = here + chosen.step; i >= 0 && i < seq.length && ahead.length < limit; i += chosen.step) {
+    const station = wmataClient.getStationByCode(seq[i])
+    if (!station) continue
+    if (ownCodes.has(station.code)) continue
+    if (ahead.some(s => s.code === station.code)) continue
+    ahead.push(station)
   }
 
-  return best && best.alignment >= MIN_HEADING_ALIGNMENT ? best.stations : null
+  return ahead.length ? ahead : null
 }
 
 export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeControls> {
@@ -119,6 +127,17 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   adapter.onStatusChanged('Loading stations…')
   const stations = await wmataClient.loadStations()
   adapter.setStations(stations)
+
+  // The live strip needs the circuit→route model, and until now it was loaded
+  // only by the web app after initBridge resolved — so whether it existed at
+  // first render was a race. Firing it here is not awaited (the station list must
+  // not wait on it) and is idempotent with a 24h cache, so the web app's own call
+  // later costs nothing. A failure is a state the strip renders, not a throw.
+  let routesFailed = false
+  void wmataClient.loadStandardRoutes().catch(err => {
+    routesFailed = true
+    console.error('Route model load failed:', err)
+  })
 
   const glassesDisplay = new GlassesDisplay(bridge)
   const ok = await glassesDisplay.startup()
@@ -141,6 +160,10 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
   // tap can't be undone by an auto-refresh that started before it: renders are
   // decided against this after their network await, not against stale state.
   let viewIntent: Exclude<GlassesView, 'splash'> = 'stations'
+  // Where dismissing the live strip returns to. It is an overlay rather than a
+  // destination, so it restores whatever was underneath instead of always
+  // assuming the timetable.
+  let liveReturnView: 'stations' | 'timetable' = 'timetable'
   // Signature of the landing list ([current, ...nearby]). While it's unchanged
   // we refresh only the status text in place, never rebuilding the list — that
   // keeps the native selection cursor from jumping on periodic refreshes.
@@ -158,9 +181,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     if (stationOverride) viewedStation = stationOverride
 
     // In the timetable we display the station the user selected, and keep
-    // displaying it across auto-refreshes — not the home station.
+    // displaying it across auto-refreshes — not the home station. The live strip
+    // keeps that same focus, so revealing it doesn't quietly move the phone UI
+    // (or the distance readout) back to the home station and then leave it there.
     const focused = () =>
-      viewIntent === 'timetable' ? (viewedStation ?? currentStation!) : currentStation!
+      viewIntent === 'stations' ? currentStation! : (viewedStation ?? currentStation!)
 
     const trains = await wmataClient.fetchPredictions(focused())
 
@@ -168,7 +193,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     // arrived while predictions were in flight must win over what this refresh
     // originally set out to draw — otherwise a timer tick that started first
     // would repaint the station list over the timetable the tap just opened.
-    const inTimetable = viewIntent === 'timetable'
+    const intent = viewIntent
     const station = focused()
 
     adapter.onPredictionsUpdated(trains)
@@ -181,7 +206,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     adapter.onStationChanged(station, currentDistKm, selected)
 
     const locationOn = !isPinned
-    if (inTimetable) {
+    if (intent === 'liveview') {
+      // The strip runs its own faster timer; this branch exists so the 30s tick
+      // keeps the clock moving without repainting the view underneath. renderLive
+      // writes only what changed, so a tick within the same minute costs nothing,
+      // and it rebuilds by itself if the containers were invalidated meanwhile.
+      renderLiveStrip()
+    } else if (intent === 'timetable') {
       await glassesDisplay.showTimetable(station, trains, currentDistKm, currentStation, nearby, locationOn)
     } else {
       // Landing view: only rebuild the list when its contents actually change
@@ -256,10 +287,64 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       // Boarding or alighting changes both the badge and what the list should
       // show, so refresh rather than waiting up to 30s for the next tick.
       glassesDisplay.setInTransit(motion === 'transit')
+      // The live view's in-transit badge is an image push, and an image can't be
+      // un-pushed in place, so clearing it needs a rebuild. Motion changes only on
+      // boarding or alighting, so this is rare enough to be worth the rebuild.
+      if (viewIntent === 'liveview') glassesDisplay.invalidateLive()
       if (!isPinned && currentStation) nearby = listForStation(currentStation)
       void doRefresh()
     },
   )
+
+  // ── Live strip ─────────────────────────────────────────────────────────
+  //
+  // A transient overlay, not a destination: it runs its own faster timer while
+  // visible and is torn down the moment it isn't, so nothing ever polls for a
+  // view that's off screen.
+
+  // The station the strip is drawn around: whatever the timetable is showing, since
+  // the strip stands in for that panel. Falls back to the rider's own station, which
+  // is what the landing view and a fresh reveal both mean.
+  const liveAnchor = () => viewedStation ?? currentStation
+
+  const liveController = new LiveStripController(
+    () => ({
+      station: liveAnchor(),
+      atOwnStation: !viewedStation || viewedStation.code === currentStation?.code,
+      lat: userLat,
+      lon: userLon,
+      heading: locationManager.heading,
+      routesFailed,
+    }),
+    () => renderLiveStrip(),
+  )
+
+  function renderLiveStrip() {
+    const anchor = liveAnchor()
+    if (viewIntent !== 'liveview' || !currentStation || !anchor) return
+    // The left list stays anchored on the home station in the same frozen order as
+    // every other view, with the browsed station marked — exactly what the timetable
+    // does, so the two panels never disagree about which station is in focus.
+    void glassesDisplay.renderLive(
+      liveController.model(), currentStation, nearby, anchor.code, currentDistKm, !isPinned,
+    )
+  }
+
+  function showLive() {
+    if (!currentStation || viewIntent === 'liveview') return
+    liveReturnView = viewIntent
+    // Recorded before the render, exactly like a tap, so a refresh already in
+    // flight draws the strip rather than the view it is replacing.
+    viewIntent = 'liveview'
+    liveController.start()   // latches direction, then renders immediately
+  }
+
+  function hideLive() {
+    if (viewIntent !== 'liveview') return
+    liveController.stop()
+    viewIntent = liveReturnView
+    void doRefresh()
+  }
 
   // View-aware input routing — follows docs pattern:
   // https://hub.evenrealities.com/docs/build/device-apis
@@ -276,10 +361,13 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       // Recovery hatch: if a render ever wedges the queue, returning to the
       // foreground clears it so the UI is usable again without a full restart.
       glassesDisplay.resetRenderLock()
+      // The OS may have torn the page down while backgrounded, so the live
+      // containers can't be upgraded in place until they've been rebuilt once.
+      glassesDisplay.invalidateLive()
       startTimer(); void doRefresh(); return
     }
     if (sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
-      stopTimer(); return
+      stopTimer(); liveController.stop(); return
     }
     // OS is tearing down the plugin — release resources before it terminates.
     if (
@@ -287,6 +375,7 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT
     ) {
       stopTimer()
+      liveController.stop()
       locationManager.stop()
       return
     }
@@ -313,6 +402,27 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
       }
     } else {
       return
+    }
+
+    // DEV only. Scroll stands in for the head tilt, because the simulator has no
+    // head to tilt and its automation API sends glasses input only, so the web
+    // app's own debug button is out of reach from a test. Scroll is unused in both
+    // views this touches: the timetable's lists are display-only, and the strip
+    // has nothing to scroll. Inside the strip it also nudges the position, which
+    // is the only way to sweep it for screenshots given the location API is absent
+    // there too, so the strip would otherwise never move.
+    if (import.meta.env.DEV) {
+      const up = eventType === OsEventTypeList.SCROLL_TOP_EVENT
+      const down = eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT
+      if (glassesDisplay.view === 'timetable' && up) {
+        showLive()
+        return
+      }
+      if (glassesDisplay.view === 'liveview' && (up || down)) {
+        liveController.devScrub(down ? 0.25 : -0.25)
+        renderLiveStrip()
+        return
+      }
     }
 
     const isPress = eventType === OsEventTypeList.CLICK_EVENT || eventType === undefined
@@ -358,6 +468,17 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
             // status-only path — but only once this rebuild actually lands.
             void glassesDisplay.showStations(currentStation, nearby, currentDistKm, !isPinned, stationsSig())
           }
+        }
+        break
+
+      case 'liveview':
+        if (isPress) {
+          // The heading can only guess the direction, and can't guess at all while
+          // standing still, so a press reverses the strip.
+          liveController.flipDirection()
+          renderLiveStrip()
+        } else if (isDoublePress) {
+          hideLive()
         }
         break
     }
@@ -450,8 +571,11 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     startLocation() {
       locationManager.start()
     },
+    showLive,
+    hideLive,
     destroy() {
       stopTimer()
+      liveController.stop()
       locationManager.stop()
       unsubscribeEvents()
     },

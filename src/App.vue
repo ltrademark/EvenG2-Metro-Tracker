@@ -21,6 +21,13 @@
       <button class="loc-btn" @click="recenter" aria-label="My location">
         <span class="loc-ic" :style="{ color: locIconColor }" v-html="locIconSvg"></span>
       </button>
+
+      <!-- DEV only. The glasses track strip is revealed by tilting your head, and
+           there is no head to tilt in the simulator, so this is the only way to
+           get it on screen there. Unrelated to the map's own Live View above. -->
+      <button v-if="isDev" class="dev-btn" @click="toggleGlassesStrip">
+        {{ glassesStrip ? 'Hide' : 'Show' }} glasses strip
+      </button>
     </div>
 
     <StationPanel
@@ -225,6 +232,9 @@ export default defineComponent({
       centeredOnUser: false,
       showInfo: false,
       liveView: false,
+      // DEV affordance for the glasses track strip. Not the map's liveView above.
+      isDev: import.meta.env.DEV,
+      glassesStrip: false,
       countdown: POLL_SECS,
       icQuery,
     }
@@ -361,6 +371,17 @@ export default defineComponent({
       }
       this._setView(this.userLat, this.userLon, 15)
       this.centeredOnUser = true
+    },
+
+    // Reveal or dismiss the glasses track strip. Goes through the same bridge
+    // controls the head-tilt gesture will use, so what's verified here is the
+    // path that ships rather than a test-only shortcut.
+    toggleGlassesStrip() {
+      const controls = _p.get(this)?.bridgeControls
+      if (!controls) return
+      this.glassesStrip = !this.glassesStrip
+      if (this.glassesStrip) controls.showLive()
+      else controls.hideLive()
     },
 
     pinStation(code: string) {
@@ -754,6 +775,20 @@ body,
 }
 .live-btn.active .live-dot {
   background: var(--c-text);
+}
+/* DEV only, so it is deliberately plain rather than designed. */
+.dev-btn {
+  position: absolute;
+  left: 14px;
+  bottom: 58px;
+  z-index: 500;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-pill);
+  background: rgba(var(--c-panel-rgb), 0.9);
+  color: var(--c-text-dim);
+  font-size: 12px;
 }
 .train-arrow {
   width: 26px;

@@ -8,7 +8,35 @@ import type {
 import type { Station, Train } from './wmata'
 import { APP_VERSION } from './version'
 
-export type GlassesView = 'splash' | 'stations' | 'timetable'
+export type GlassesView = 'splash' | 'stations' | 'timetable' | 'liveview'
+
+// One stop on the live strip. The kind only decides which glyph is drawn; which
+// stops are transfers is route topology, so it's decided by the caller.
+export type LiveStopKind = 'terminus' | 'transfer' | 'stop'
+
+// A live train on the strip, in the same fractional stop-sequence units as the
+// user's own position, so both are placed by identical arithmetic.
+export interface LiveTrain {
+  line: string        // WMATA line code, e.g. 'YL'
+  position: number
+  rightward: boolean  // travelling toward destAhead, so drawn above the rail
+}
+
+// Everything the live strip draws, already resolved to travel order: `stops` runs
+// left to right in the direction the user is moving, and `position` is the user's
+// fractional index into it (4.5 = midway between the 5th and 6th stop). Flipping
+// for direction happens before this, so the renderer only ever draws rightward.
+export interface LiveStripModel {
+  line: string
+  destAhead: string
+  destBehind: string
+  stops: LiveStopKind[]
+  position: number
+  trains: LiveTrain[]
+  // Set when there is no strip to draw (route model still loading, or failed).
+  // Takes over the top label and blanks the strip.
+  note: string | null
+}
 
 const W = 576      // display width
 const LH = 27      // fixed line height on G2
@@ -202,6 +230,187 @@ const SWITCH_BOX_W = SWITCH_W + 12
 const SWITCH_X     = PANEL_IX + PANEL_IW - SWITCH_BOX_W
 const DEST_HDR_W   = PANEL_IW - SWITCH_BOX_W - 8   // destination header container width
 
+// ── Live view geometry ─────────────────────────────────────────────────────
+//
+// A horizontal track strip with the user pinned to the centre. Every box here is
+// a FIXED size, because this view refreshes by upgrading container contents in
+// place rather than rebuilding: textContainerUpgrade carries only a string, so
+// there is no opportunity to resize a box to fit new text. Anything that changes
+// therefore has to fit the widest string it will ever hold, and is padded rather
+// than repositioned.
+// The strip occupies the same right-hand panel the timetable's arrivals table
+// does, so revealing it swaps one panel for another and leaves the station list
+// on the left exactly where it was. Nothing in the left column or the bottom
+// status row moves between the two views.
+const STRIP_X  = 224                       // left edge of the left gradient cap
+const STRIP_W  = 344                       // 224..568
+const STRIP_R  = STRIP_X + STRIP_W          // 568
+const STRIP_MID = STRIP_X + STRIP_W / 2     // 396 — where the user always sits
+const GRAD_W   = 32                        // width of each gradient cap
+
+// Stops are drawn as one text run, spaced by a whole number of space glyphs. That
+// only lands on an exact grid because the pitch minus a glyph is divisible by the
+// space width, which is what makes 115 the pitch rather than a round 114. At this
+// pitch about 3 stops fit the panel, with the middle one being the user's own.
+const STOP_PITCH  = 115
+const DOT_W       = 20   // every geometric glyph measures exactly 20px
+const GAP_SPACES  = (STOP_PITCH - DOT_W) / SPACE_W   // 19
+// DOTS_X is load-bearing: centres land at DOTS_X + n*SPACE_W + DOT_W/2, so exact
+// centring needs (STRIP_MID - DOTS_X - DOT_W/2) divisible by SPACE_W. 226 gives
+// 160 and is exact; 224 gives 162 and is 2px off at every position.
+const DOTS_X      = 226
+const DOTS_W      = STRIP_R - DOTS_X   // 342
+// x of the first drawable glyph's centre. Sub-pitch offset is encoded as leading
+// spaces, so a stop whose centre falls left of this simply isn't drawn.
+const FIRST_DOT_CENTER = DOTS_X + DOT_W / 2   // 236
+const DOTS_BUDGET = DOTS_W - SAFE   // 324
+
+// Stop glyphs. All measure exactly 20px, which is what keeps the row on its grid;
+// several plausible alternatives (⬤ ◉ ▬ ▪) measure 4px because the font has no
+// glyph for them, so they must not be substituted without re-measuring.
+const GLYPH: Record<LiveStopKind, string> = {
+  terminus: '◆',
+  transfer: '□',
+  stop: '○',
+}
+
+// The rider's own stop, which is positional rather than topological and so is
+// applied at render time rather than baked into the stop list. It overrides the
+// glyph the stop would otherwise get: where you are outranks what the stop is.
+const CURRENT_GLYPH = '●'
+
+// The rail the stops sit on: a bordered text box with no interior, the same trick
+// as the timetable's divider. Everything vertical derives from its centre line.
+//
+// It is deliberately kept thin. A 12px rail matching the gradient art's own height
+// looks better on its own, but it swallows the 20px stop glyphs, leaving only a
+// sliver of each circle showing above and below. Beads on a wire need a wire.
+const RAIL_MID = 105
+const RAIL_H   = 6
+const RAIL_BW  = RAIL_H / 2   // border with no interior left = a solid bar
+// Overlaps each gradient cap by 2px so no seam can show between them.
+const RAIL_X   = STRIP_X + GRAD_W - 2
+const RAIL_W   = STRIP_W - (GRAD_W - 2) * 2
+const RAIL_Y   = RAIL_MID - RAIL_H / 2   // 102
+
+// Gradient caps fading the rail out at both ends.
+const GRAD_L_URL = '/icons/grad_left.png'
+const GRAD_R_URL = '/icons/grad_right.png'
+const GRAD_H = 20   // SDK image containers are invalid below 20px tall
+const GRAD_Y = RAIL_MID - GRAD_H / 2
+const GRAD_R_X = STRIP_R - GRAD_W
+
+// pretext measures width only, so where the ink sits inside the 27px line box is
+// an estimate until it's screenshotted and measured on a real display.
+const GLYPH_INK_MID = 14
+const DOTS_Y = RAIL_MID - GLYPH_INK_MID   // 91
+
+// Train rows, one each side of the rail. Which side a train is on says which way
+// it is going, matching the destination label on that side.
+const TRAINS_ABOVE_Y = 67
+const TRAINS_BELOW_Y = 118
+
+// Destination ahead reads top-left, destination behind bottom-right, so each label
+// sits on the same side as the trains heading for it.
+const LIVE_DESTA_Y = 8
+const LIVE_DESTB_Y = 184
+const LIVE_DEST_W  = STRIP_W
+
+const AHEAD_ARROW  = '▶'
+const BEHIND_ARROW = '◀'
+
+// Status line, sharing the bottom row with the badges exactly as the other views
+// do. Unlike them the box is a fixed width sized to the longest string it can
+// hold, because an in-place upgrade cannot reposition it to fit the text.
+const LIVE_BOT_Y   = 258
+const LIVE_CLOCK_W = getTextWidth('12.3mi • 12:00 AM') + SAFE   // 175
+const LIVE_CLOCK_X = W - 4 - LIVE_CLOCK_W                       // 397
+
+// Right-align inside a fixed box by padding with space glyphs. The other views
+// right-align by positioning the box, which an in-place upgrade can't do, since
+// TextContainerUpgrade carries content and never geometry.
+function padLeftTo(text: string, boxW: number): string {
+  const pad = Math.max(0, Math.round((boxW - SAFE - getTextWidth(text)) / SPACE_W))
+  return ' '.repeat(pad) + text
+}
+
+// Where stop `i` is drawn, given the user's fractional position. Shared by the
+// stop row and the train rows so a train at position 4.5 lands exactly halfway
+// between the 5th and 6th dot.
+function stripX(i: number, position: number): number {
+  return STRIP_MID + (i - position) * STOP_PITCH
+}
+
+// Lay tokens along a row at their own x positions, using leading spaces to carry
+// the offset. Positions quantise to the 5px space width; a token that would
+// collide with its neighbour is dropped rather than allowed to overlap, since two
+// overlapping line codes read as a third meaningless one.
+function placeTokens(tokens: { x: number; text: string }[], boxX: number, boxW: number): string {
+  const limit = boxX + boxW - SAFE
+  let out = ''
+  let cursor = boxX   // right edge of what's been placed, in px
+  let first = true
+  for (const token of [...tokens].sort((a, b) => a.x - b.x)) {
+    const w = getTextWidth(token.text)
+    const gap = Math.round((token.x - w / 2 - cursor) / SPACE_W)
+    if (gap < (first ? 0 : 1)) continue        // would touch the previous token
+    if (cursor + gap * SPACE_W + w > limit) break
+    out += ' '.repeat(gap) + token.text
+    cursor += gap * SPACE_W + w
+    first = false
+  }
+  return out
+}
+
+// The stop row as one string, centred on the user.
+//
+// Leading spaces carry the sub-pitch offset, so the row slides smoothly as the
+// train moves between stops instead of snapping a whole pitch at a time. Rounding
+// that lead to a whole space quantises the row by at most half a space width.
+function liveDots(stops: LiveStopKind[], position: number): string {
+  if (!stops.length) return ''
+  let first = 0
+  while (first < stops.length && stripX(first, position) < FIRST_DOT_CENTER) first++
+  if (first >= stops.length) return ''
+
+  const lead = Math.max(0, Math.round((stripX(first, position) - FIRST_DOT_CENTER) / SPACE_W))
+  // If not even the first stop fits, draw nothing at all. Falling through would
+  // emit the lead as a run of trailing spaces with no glyph after it, and that run
+  // can be wider than the container, which wraps the row and drops the whole strip
+  // a line down the display.
+  if (lead * SPACE_W + DOT_W > DOTS_BUDGET) return ''
+  // The stop the rider is at, which is simply the nearest one: they sit at the
+  // centre of the strip, so the marker hands over to the next stop as they pass the
+  // midpoint between the two.
+  const current = Math.round(position)
+  let out = ' '.repeat(lead)
+  let width = lead * SPACE_W
+  for (let i = first; i < stops.length; i++) {
+    const cost = DOT_W + (i === first ? 0 : GAP_SPACES * SPACE_W)
+    // Belt and braces against a wrap: the budget maths says this can't trip, but
+    // a wrapped row would push the whole strip a line down.
+    if (width + cost > DOTS_BUDGET) break
+    if (i !== first) out += ' '.repeat(GAP_SPACES)
+    out += i === current ? CURRENT_GLYPH : GLYPH[stops[i]]
+    width += cost
+  }
+  return out
+}
+
+// A train's marker: its line code, plus an arrow for the direction it is
+// travelling along the line.
+//
+// The mockup drew this as a stacked pair of images, the train icon nearest the
+// rail with a line roundel beyond it. That is not reachable: the SDK allows four
+// images per page and the two gradient caps plus the location and in-transit
+// badges already claim all four, and the number of trains on screen varies from
+// none to several, so a fixed set of image containers could not cover it either.
+// The arrow sits on the side the train is heading toward, so it always points away
+// from its own label and out of the display: "RD▶" runs right, "◀RD" runs left.
+function trainToken(line: string, rightward: boolean): string {
+  return rightward ? line + AHEAD_ARROW : BEHIND_ARROW + line
+}
+
 // Frozen-order list: [current, ...nearby]. The order never changes between the
 // list view and the timetable view. When `showMarker` is set (timetable), the
 // marked station is prefixed with "> " and its name budget is reduced by that
@@ -225,6 +434,35 @@ function stationItems(
   return items
 }
 
+// The window of station rows to draw, chosen so the marked station is always one
+// of them.
+//
+// The list cannot be scrolled programmatically, and a rebuild resets it to the top,
+// so a marked station sitting past the visible window would simply disappear.
+// Slicing to a window that contains it renders as though the list had been scrolled
+// down to it, which is what keeps the selection visible across a rebuild. The marked
+// row lands at the bottom of the window, so the stations above it are the ones you
+// have context for.
+function stationWindow(current: Station, nearby: Station[], markedCode: string): string[] {
+  const all = stationItems(current, nearby, markedCode, true)
+  if (all.length <= MAX_VISIBLE) return all
+  const order = [current, ...nearby.slice(0, MAX_STATIONS - 1)]
+  const marked = Math.max(0, order.findIndex(s => s.code === markedCode))
+  const start = Math.max(0, Math.min(marked - (MAX_VISIBLE - 1), all.length - MAX_VISIBLE))
+  return all.slice(start, start + MAX_VISIBLE)
+}
+
+// Which container holds the distance+clock line in each view. Exhaustive over
+// GlassesView on purpose: this was a bare ternary that fell through to the
+// timetable's ID for anything that wasn't the station list, so a new view
+// silently wrote its clock into whatever container happened to hold that ID —
+// here, an image. A missing key is now a compile error instead.
+const CLOCK_ID: Record<Exclude<GlassesView, 'splash'>, number> = {
+  stations: 2,
+  timetable: 8,
+  liveview: 8,
+}
+
 export class GlassesDisplay {
   private _bridge: EvenAppBridge
   private _rendering = false
@@ -244,6 +482,11 @@ export class GlassesDisplay {
   private _statusDistKm = 0
   private _inTransit = false
   private _imgCache = new Map<string, number[]>()
+  // Live view: the strings currently on screen, so an unchanged poll costs no BLE
+  // traffic at all. Cleared whenever the containers themselves are in doubt.
+  private _liveDrawn: Record<string, string> = {}
+  private _liveListSig = ''
+  private _liveDirty = true
 
   constructor(bridge: EvenAppBridge) {
     this._bridge = bridge
@@ -321,15 +564,45 @@ export class GlassesDisplay {
 
   // Push the on/off location icon into a freshly-rebuilt image container.
   // Re-pushed on every rebuild because rebuildPageContainer recreates containers.
+  //
+  // The result is checked, not discarded: the call resolves with a reason string
+  // rather than throwing, so an asset the firmware rejects (wrong dimensions, a
+  // failed greyscale conversion) used to fail completely silently and leave a
+  // blank container with nothing in the log to explain it.
   private async _pushIcon(id: number, name: string, url: string): Promise<void> {
     try {
       const bytes = await this._fetchImg(url)
-      await withTimeout(
+      const result = await withTimeout(
         this._bridge.updateImageRawData({ containerID: id, containerName: name, imageData: bytes }),
         `updateImageRawData(${name})`,
       )
+      if (result !== 'success') {
+        console.warn(`Icon rejected (${name}, ${url}): ${result}`)
+      }
     } catch (err) {
       console.warn(`Icon load failed (${name}):`, err)
+    }
+  }
+
+  // In-place content update for one text container. Every non-rebuild write goes
+  // through here: it keeps the SDK's object-literal friction to a single site,
+  // and gives every caller the same "never throws" contract, since a failed
+  // cosmetic update must not abort the render that requested it.
+  private async _upgradeText(id: number, name: string, content: string): Promise<boolean> {
+    try {
+      await withTimeout(
+        this._bridge.textContainerUpgrade({
+          containerID: id,
+          containerName: name,
+          content,
+          contentOffset: 0,
+          contentLength: 0,
+        }),
+        `textContainerUpgrade(${name})`,
+      )
+      return true
+    } catch {
+      return false   // non-critical; the caller retries on its next tick
     }
   }
 
@@ -465,6 +738,7 @@ export class GlassesDisplay {
       // acting on a screen the user can't see.
       this._view = 'stations'
       this._renderedStationsSig = sig
+      this._liveDirty = true   // this rebuild replaced the live containers
       await this._pushBadges(3, 4, locationOn)
     })
   }
@@ -519,19 +793,9 @@ export class GlassesDisplay {
         ? filtered.map(fmtTrainRow)
         : ['No trains']
 
-    // Same [current, ...nearby] order as the landing view, with the viewed
-    // station marked "> ". The list can't be programmatically scrolled, and a
-    // rebuild resets it to the top — so when the viewed station sits past the
-    // visible window we slice to a window that keeps it on screen (positioned
-    // as if scrolled down to it), instead of snapping back to the top.
-    const order = [currentStation, ...nearbyStations.slice(0, MAX_STATIONS - 1)]
-    const selIdx = Math.max(0, order.findIndex(s => s.code === station.code))
-    const allItems = stationItems(currentStation, nearbyStations, station.code, true)
-    let items = allItems
-    if (allItems.length > MAX_VISIBLE) {
-      const start = Math.max(0, Math.min(selIdx - (MAX_VISIBLE - 1), allItems.length - MAX_VISIBLE))
-      items = allItems.slice(start, start + MAX_VISIBLE)
-    }
+    // Same [current, ...nearby] order as the landing view, with the viewed station
+    // marked "> " and the window chosen to keep it on screen.
+    const items = stationWindow(currentStation, nearbyStations, station.code)
     const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
 
     const status = statusStr(distKm)
@@ -570,6 +834,7 @@ export class GlassesDisplay {
     // Only claim the timetable view once it is actually on screen — otherwise a
     // failed rebuild would leave taps toggling a direction the user can't see.
     this._view = 'timetable'
+    this._liveDirty = true   // this rebuild replaced the live containers
     await this._pushBadges(9, 10, locationOn)
     })
   }
@@ -590,9 +855,174 @@ export class GlassesDisplay {
     )
   }
 
+  // ── Live view ──────────────────────────────────────────────────────────
+  //
+  // The strip replaces only the timetable's arrivals panel. The station list, the
+  // location and in-transit badges, and the status line all keep the geometry they
+  // have in the timetable, so revealing this swaps one panel and moves nothing.
+  //
+  //   ID 1  — station list          left, bordered, display-only
+  //   ID 2  — destination ahead     top of the panel, left-aligned
+  //   ID 3  — rail                  bordered rule the stops sit on
+  //   ID 4  — stop row              on the rail, isEventCapture
+  //   ID 5  — trains heading ahead  above the rail
+  //   ID 6  — trains heading back   below the rail
+  //   ID 7  — destination behind    bottom of the panel, right-aligned
+  //   ID 8  — status (distance + clock), bottom-right
+  //   ID 9  — left gradient cap     image
+  //   ID 10 — right gradient cap    image
+  //   ID 11 — location badge        image, bottom-left
+  //   ID 12 — in-transit badge      image, bottom-left
+  //
+  // Twelve containers is the protocol maximum, and four images is too, which is
+  // what rules out drawing trains as icons.
+  //
+  // Entering costs one rebuild plus the image pushes. Every poll after that costs
+  // at most one text upgrade per row that actually changed, and nothing at all
+  // while nothing has moved far enough to change a string. Rebuilding per poll
+  // instead would mean five awaited round trips at up to 5s each, inside the
+  // render lock, on a 15s timer — both slower than the timer and fresh exposure to
+  // the stall that wedged the display before.
+  //
+  // The in-transit badge is always *declared* even when not shown, so the declared
+  // container count never changes: a conditional container would force a full
+  // rebuild on every motion flip. Only its image push is conditional.
+
+  private static readonly _LIVE_IDS: Record<string, number> = {
+    destA: 2, dots: 4, above: 5, below: 6, destB: 7, clock: 8,
+  }
+
+  private _liveStrings(model: LiveStripModel, distKm: number): Record<string, string> {
+    const budget = (arrow: string) => LIVE_DEST_W - SAFE - getTextWidth(arrow + ' ')
+    // The arrow trails the name on the top row and leads it on the bottom one, so
+    // each points outward toward the end of the line it names rather than back at
+    // its own text.
+    const label = (dest: string, arrow: string, trailing: boolean) =>
+      !dest
+        ? ''
+        : trailing
+          ? pxTruncate(dest.toUpperCase(), budget(arrow)) + ' ' + arrow
+          : arrow + ' ' + pxTruncate(dest.toUpperCase(), budget(arrow))
+    // A note replaces the whole strip rather than sitting alongside it: a rail with
+    // no stops on it reads as "no service", which is a different claim.
+    const blank = model.note !== null
+    const side = (rightward: boolean) =>
+      blank
+        ? ''
+        : placeTokens(
+            model.trains
+              .filter(t => t.rightward === rightward)
+              .map(t => ({ x: stripX(t.position, model.position), text: trainToken(t.line, t.rightward) })),
+            STRIP_X,
+            STRIP_W,
+          )
+    return {
+      destA: blank ? model.note! : label(model.destAhead, AHEAD_ARROW, true),
+      dots: blank ? '' : liveDots(model.stops, model.position),
+      above: side(true),
+      below: side(false),
+      // Right-aligned to the panel's right edge, mirroring the top label.
+      destB: blank ? '' : padLeftTo(label(model.destBehind, BEHIND_ARROW, false), LIVE_DEST_W),
+      clock: padLeftTo(statusStr(distKm), LIVE_CLOCK_W),
+    }
+  }
+
+  // Draws the strip, rebuilding only when the containers can't be trusted —
+  // arriving from another view, a change to the station list, or after
+  // invalidateLive(). Otherwise upgrades in place, writing only what changed.
+  async renderLive(
+    model: LiveStripModel,
+    currentStation: Station,
+    nearbyStations: Station[],
+    markedCode: string,
+    distKm: number,
+    locationOn = true,
+  ): Promise<void> {
+    const next = this._liveStrings(model, distKm)
+    // Same window the timetable uses, so the selected station stays put rather than
+    // the list snapping back to the top when the strip takes over the panel beside
+    // it. List contents can only change by rebuilding, so they are part of what
+    // makes the page stale rather than something upgradable alongside the strip.
+    const items = stationWindow(currentStation, nearbyStations, markedCode)
+    const listSig = items.join('|')
+
+    if (this._view !== 'liveview' || this._liveDirty || listSig !== this._liveListSig) {
+      return this._enqueue(async () => {
+        this._statusDistKm = distKm
+        const listH = Math.min(items.length, MAX_VISIBLE) * ROW_PITCH + 10
+        await withTimeout(
+          this._bridge.rebuildPageContainer({
+            containerTotalNum: 12,
+            imageObject: [
+              img(9, 'gradL', STRIP_X, GRAD_Y, GRAD_W, GRAD_H),
+              img(10, 'gradR', GRAD_R_X, GRAD_Y, GRAD_W, GRAD_H),
+              img(11, 'loc', LOC_X, LOC_Y, LOC_SIZE, LOC_SIZE),
+              img(12, 'motion', MOTION_X, MOTION_Y, MOTION_SIZE, MOTION_SIZE),
+            ],
+            textObject: [
+              txt(2, 'destA', STRIP_X, LIVE_DESTA_Y, LIVE_DEST_W, LH, next.destA),
+              // Border-as-fill: a border half the box height leaves no interior,
+              // the same technique the timetable divider uses.
+              txt(3, 'rail', RAIL_X, RAIL_Y, RAIL_W, RAIL_H, '', false, RAIL_BW),
+              // isEventCapture is not decoration here: a page with no capturing
+              // container receives no input at all, so without it this view took
+              // neither the press that reverses it nor the double press that
+              // leaves it, and became a dead end needing a plugin restart.
+              txt(4, 'dots', DOTS_X, DOTS_Y, DOTS_W, LH, next.dots, true),
+              txt(5, 'above', STRIP_X, TRAINS_ABOVE_Y, STRIP_W, LH, next.above),
+              txt(6, 'below', STRIP_X, TRAINS_BELOW_Y, STRIP_W, LH, next.below),
+              txt(7, 'destB', STRIP_X, LIVE_DESTB_Y, LIVE_DEST_W, LH, next.destB),
+              txt(8, 'clock', LIVE_CLOCK_X, LIVE_BOT_Y, LIVE_CLOCK_W, LH, next.clock),
+            ],
+            // Same geometry and padding as the timetable's left list, so station
+            // names line up across every view.
+            listObject: [
+              lst(1, 'stations', LIST_X, 4, LIST_W, listH, items, false, LIST_BW, LIST_RADIUS, false, LIST_PAD),
+            ],
+          }),
+          'rebuildPageContainer(liveview)',
+        )
+        // Claimed only once the page is actually on screen, so a failed rebuild
+        // leaves input routing to whatever the user can still see.
+        this._view = 'liveview'
+        this._liveDirty = false
+        this._liveListSig = listSig
+        this._liveDrawn = { ...next }
+        await this._pushIcon(11, 'loc', locationOn ? LOCATION_ON_URL : LOCATION_OFF_URL)
+        if (this._inTransit) await this._pushIcon(12, 'motion', MOTION_URL)
+        await this._pushIcon(9, 'gradL', GRAD_L_URL)
+        await this._pushIcon(10, 'gradR', GRAD_R_URL)
+      })
+    }
+
+    // Outside the render queue for the same reason as updateStatus: latest-wins
+    // would drop a queued rebuild in favour of a mere position tick.
+    if (this._rendering) return
+    this._statusDistKm = distKm
+    for (const [name, content] of Object.entries(next)) {
+      if (this._liveDrawn[name] === content) continue
+      // Re-checked every iteration, because this loop awaits: a rebuild starting
+      // between two upgrades would leave the rest of them writing into containers
+      // that are no longer the ones on screen. ID 4 is the stop row here and an
+      // image container in the station list, so a stray write is not harmless.
+      if (this._view !== 'liveview' || this._liveDirty || this._rendering) return
+      if (await this._upgradeText(GlassesDisplay._LIVE_IDS[name], name, content)) {
+        this._liveDrawn[name] = content
+      }
+    }
+  }
+
+  // Called when the live containers can no longer be trusted — returning from the
+  // background, where the OS may have torn the page down. The next render then
+  // rebuilds instead of upgrading containers that might not exist.
+  invalidateLive(): void {
+    this._liveDirty = true
+    this._liveDrawn = {}
+    this._liveListSig = ''
+  }
+
   // In-place status (distance + clock) update — no rebuild, so the native list
-  // selection cursor on the landing view is left untouched. Clock is ID 2 in
-  // the stations view, ID 8 in the timetable view.
+  // selection cursor on the landing view is left untouched.
   async updateStatus(distKm: number = this._statusDistKm): Promise<void> {
     if (this._view === 'splash') return
     // Deliberately outside the render queue: it's the cheap 30s path and must
@@ -601,18 +1031,13 @@ export class GlassesDisplay {
     // rebuild draws the current status itself.
     if (this._rendering) return
     this._statusDistKm = distKm
-    const id = this._view === 'stations' ? 2 : 8
-    try {
-      await withTimeout(
-        this._bridge.textContainerUpgrade({
-          containerID: id,
-          containerName: 'clock',
-          content: statusStr(distKm),
-          contentOffset: 0,
-          contentLength: 0,
-        }),
-        'textContainerUpgrade(clock)',
-      )
-    } catch { /* non-critical */ }
+    const status = statusStr(distKm)
+    await this._upgradeText(
+      CLOCK_ID[this._view],
+      'clock',
+      // The live view's box is fixed and left-anchored, so its content is padded
+      // to sit where the other views position the box itself.
+      this._view === 'liveview' ? padLeftTo(status, LIVE_CLOCK_W) : status,
+    )
   }
 }
