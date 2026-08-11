@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "latest",
+    "@evenrealities/even_hub_sdk": "0.0.13",
     "@evenrealities/pretext": "^0.1.4",
     "leaflet": "^1.9.4",
     "vue": "^3.5.0"
