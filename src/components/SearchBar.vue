@@ -115,7 +115,7 @@ export default defineComponent({
   height: 32px;
   flex-shrink: 0;
   padding: 0 var(--sp-3);
-  border-radius: 6px;
+  border-radius: var(--r-control);
   background: var(--c-field);
   color: var(--c-field-ink);
 }

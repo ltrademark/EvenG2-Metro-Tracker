@@ -26,13 +26,6 @@
       <button class="loc-btn" @click="recenter" aria-label="My location">
         <span class="loc-ic" :style="{ color: locIconColor }" v-html="locIconSvg"></span>
       </button>
-
-      <!-- DEV only. The glasses track strip is revealed by tilting your head, and
-           there is no head to tilt in the simulator, so this is the only way to
-           get it on screen there. Unrelated to the map's own Live View above. -->
-      <button v-if="isDev" class="dev-btn" @click="toggleGlassesStrip">
-        {{ glassesStrip ? 'Hide' : 'Show' }} glasses strip
-      </button>
     </div>
 
     <StationPanel
@@ -232,9 +225,6 @@ export default defineComponent({
       centeredOnUser: false,
       showInfo: false,
       liveView: false,
-      // DEV affordance for the glasses track strip. Not the map's liveView above.
-      isDev: import.meta.env.DEV,
-      glassesStrip: false,
       // Search takes over the whole area below the field, so the map and the
       // boarding panel step aside rather than being overlaid.
       searchOpen: false,
@@ -381,17 +371,6 @@ export default defineComponent({
       }
       this._setView(this.userLat, this.userLon, 15)
       this.centeredOnUser = true
-    },
-
-    // Reveal or dismiss the glasses track strip. Goes through the same bridge
-    // controls the head-tilt gesture will use, so what's verified here is the
-    // path that ships rather than a test-only shortcut.
-    toggleGlassesStrip() {
-      const controls = _p.get(this)?.bridgeControls
-      if (!controls) return
-      this.glassesStrip = !this.glassesStrip
-      if (this.glassesStrip) controls.showLive()
-      else controls.hideLive()
     },
 
     pinStation(code: string) {
@@ -732,7 +711,7 @@ body,
   height: 34px;
   padding: 0 var(--sp-3) 0 var(--sp-2);
   border: 1px solid var(--c-border-soft);
-  border-radius: var(--r-xs);
+  border-radius: var(--r-control);
   background: var(--c-surface);
   color: var(--c-text-dim);
   font-size: var(--fs-xs);
@@ -754,13 +733,13 @@ body,
   top: 14px;
   right: 14px;
   z-index: 500;
-  padding: 6px 12px;
-  border-radius: var(--r-md);
-  background: rgba(var(--c-panel-rgb), 0.85);
+  padding: 6px var(--sp-3);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
   color: var(--c-text-dim);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
-  backdrop-filter: blur(8px);
 }
 
 .live-btn {
@@ -774,7 +753,7 @@ body,
   height: 48px;
   padding: 0 var(--sp-5);
   border: 1px solid var(--c-border-soft);
-  border-radius: var(--r-xs);
+  border-radius: var(--r-control);
   background: var(--c-surface);
   color: var(--c-live);
   font-size: var(--fs-lg);
@@ -784,7 +763,7 @@ body,
   &.active {
     background: var(--c-live);
     border-color: var(--c-live);
-    color: var(--c-text);
+    color: var(--c-surface);
   }
 }
 .live-dot {
@@ -800,20 +779,6 @@ body,
 }
 .live-btn.active .live-dot {
   color: var(--c-surface);
-}
-/* DEV only, so it is deliberately plain rather than designed. */
-.dev-btn {
-  position: absolute;
-  left: 14px;
-  bottom: 58px;
-  z-index: 500;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px dashed var(--c-border);
-  border-radius: var(--r-xs);
-  background: var(--c-surface);
-  color: var(--c-text-dim);
-  font-size: var(--fs-xs);
 }
 .train-arrow {
   width: 26px;
@@ -904,7 +869,7 @@ body,
   width: 48px;
   height: 48px;
   border: 1px solid var(--c-border-soft);
-  border-radius: var(--r-xs);
+  border-radius: var(--r-control);
   background: var(--c-surface);
   display: flex;
   align-items: center;

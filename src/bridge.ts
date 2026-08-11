@@ -24,11 +24,6 @@ export interface BridgeControls {
   unpin(): void
   forceRefresh(): Promise<void>
   startLocation(): void
-  // Reveal and dismiss the glasses live strip. One entry point, shared by the DEV
-  // affordance and (later) the head-tilt gesture, so both go through exactly the
-  // same state changes.
-  showLive(): void
-  hideLive(): void
   destroy(): void
 }
 
@@ -330,6 +325,9 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     )
   }
 
+  // Revealed from inside the bridge only: the scroll stand-in below in DEV, and
+  // the head-tilt gesture once that lands. Nothing outside needs to trigger it,
+  // so it is deliberately not on BridgeControls.
   function showLive() {
     if (!currentStation || viewIntent === 'liveview') return
     liveReturnView = viewIntent
@@ -571,8 +569,6 @@ export async function initBridge(adapter: AppBridgeAdapter): Promise<BridgeContr
     startLocation() {
       locationManager.start()
     },
-    showLive,
-    hideLive,
     destroy() {
       stopTimer()
       liveController.stop()

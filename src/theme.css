@@ -23,11 +23,6 @@
   --c-field: #dedede;           /* the search input's own fill */
   --c-field-ink: #7a7a7a;       /* its placeholder, typed text and icon */
 
-  /* Channel form, for the translucent floating controls over the map. A var()
-   * cannot be interpolated inside rgba(), so anything translucent needs its
-   * channels as a separate token. */
-  --c-panel-rgb: 255, 255, 255;
-
   /* ── Borders ──────────────────────────────────────────────────────────
    * Three weights, subtle to strong.
    */
@@ -63,7 +58,11 @@
    * is the opposite of the usual scrim and is what the mockup shows. */
   --c-scrim: rgba(255, 255, 255, 0.72);
 
-  /* ── Radius ─────────────────────────────────────────────────────────── */
+  /* ── Radius ───────────────────────────────────────────────────────────
+   * --r-control is the corner shared by the search field and every button,
+   * measured off the mockup's search field.
+   */
+  --r-control: 6px;
   --r-xs: 10px;
   --r-sm: 12px;
   --r-md: 14px;
