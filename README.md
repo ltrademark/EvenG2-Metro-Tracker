@@ -1,4 +1,5 @@
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5ca9cc64-0f34-46aa-af04-8c15aee8cb25" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/3986fad4-3a15-448f-819c-22b89bd18e30" />
+
 
 ---
 
@@ -25,13 +26,14 @@
 - **Location indicator** showing whether you're on GPS or a manually-picked station
 - Remembers your last station so it loads instantly next launch
 
-|    |    |
-| -- | -- |
-| <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/cae0bf60-3ce9-4b82-ba73-8f2c93951821" /> | <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/b80d2c2d-cf5a-45a5-956b-84248a791012" /> |
+|    |    |    |
+| -- | -- | -- |
+| <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/cae0bf60-3ce9-4b82-ba73-8f2c93951821" /> | <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/b80d2c2d-cf5a-45a5-956b-84248a791012" /> | <img width="576" height="288" alt="image" src="https://github.com/user-attachments/assets/d37c9992-9879-4a55-9b03-d0e100888429" /> |
+
 
 ## Phone app
 
-- **Dark map** of the full network — color-coded line ribbons and station markers
+- **Full** network map — color-coded line ribbons and station markers
 - **Search** any station with line-aware autocomplete
 - **Boarding-times panel** for your current or selected station, with live distance
 - **Live View** — hides the panel and animates real-time trains along the lines; tap a train for its destination, car count, and train number; refreshes every 10s with an on-screen countdown
@@ -39,9 +41,12 @@
 
 |    |    |    |
 | -- | -- | -- |
-| <img width="2874" height="5628" alt="image" src="https://github.com/user-attachments/assets/4f29d930-e9ca-40ab-a4c3-b58761e45473" /> | <img width="2874" height="5624" alt="image" src="https://github.com/user-attachments/assets/2393967d-7ba4-4abd-b177-ecb5852bbbb0" /> | <img width="2874" height="5624" alt="image" src="https://github.com/user-attachments/assets/25cbb013-199f-400e-8080-6bf5bd6779a9" /> |
+| <img width="2880" height="5630" alt="image" src="https://github.com/user-attachments/assets/5507ee40-8409-4f4e-99d8-0c2bd612dde3" /> | <img width="2880" height="5630" alt="image" src="https://github.com/user-attachments/assets/62ff3561-6848-4899-b782-8f1c1fbe0078" /> | <img width="2880" height="5630" alt="image" src="https://github.com/user-attachments/assets/16a8e10a-972f-48fa-ac97-33957e42afc2" /> |
 
-## Prerequisites
+
+
+
+## Prerequisites to build
 
 - [Node.js](https://nodejs.org) 18+
 - [Yarn](https://yarnpkg.com) 1.x
