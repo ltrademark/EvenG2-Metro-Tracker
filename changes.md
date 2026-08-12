@@ -65,7 +65,7 @@ phone web-app map.
 ### Glasses UI
 - **Station picker redesign.** The landing list now uses the native selection
   cursor (a highlight box that moves as you scroll) to show what you're about to
-  select — no more `>`/`-` text prefixes. The `>` marker is now timetable-only,
+  select, with no more `>`/`-` text prefixes. The `>` marker is now timetable-only,
   where it marks the viewed station and intentionally shifts that row's text for
   distinction. The cursor floats inside the list with comfortable padding.
 - **Timetable keeps the selected station visible.** When you select a station
@@ -84,7 +84,7 @@ phone web-app map.
   EvenHub submission rejection).
 - Unsubscribe the `onEvenHubEvent` listener on teardown.
 - Declared the `network` permission whitelist in `app.json` (WMATA API +
-  CartoDB tile hosts) — required for packaging/review.
+  CartoDB tile hosts), which packaging and review both require.
 
 ### Web-app map
 - **Merged duplicate transfer dots.** Dual-code stations (Metro Center, Gallery
@@ -92,7 +92,7 @@ phone web-app map.
   overlapping ones.
 - **Connection station dots.** New SVG icons: a plain dot for normal stops and a
   larger ringed dot for connection stations. Connections are detected from the
-  data — dual-platform transfers plus single-platform line-branch junctions
+  data: dual-platform transfers plus single-platform line-branch junctions
   (Rosslyn, Pentagon, Stadium-Armory, East Falls Church, King St-Old Town).
 - **Connection dots centered on the crossing.** Hub dots are placed at the
   least-squares intersection of their lines' offset ribbons, with a bounded
@@ -141,7 +141,7 @@ phone web-app map.
   station shows the manual-pin state and "Auto" re-locks to the GPS-nearest stop.
 - Persist the last station for instant load on return; resized the logo to 144px.
 - Cleaner splash logo; moved the version label to the top-left (no overflow).
-- Removed the vestigial location prompt — start SDK location directly; center the
+- Removed the vestigial location prompt, starting SDK location directly; center the
   map on the persisted station before the first GPS fix.
 
 ## v0.3.1
