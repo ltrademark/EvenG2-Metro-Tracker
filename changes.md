@@ -4,6 +4,19 @@ A running log of every change, newest version first. MetroTracker is a real-time
 DC Metro (WMATA) tracker for the Even Realities G2 smart glasses, with a companion
 phone web-app map.
 
+## v0.7.2
+
+### Phone app
+- **Fixed the map showing "API key required" over parts of it.** Carto began requiring an API key on its basemap tiles in August 2026, and keyless requests now come back as a watermark tile. The map moved to OpenFreeMap, which needs no key and has no quota. Its Positron style is the same light basemap, so the map looks nearly identical.
+- **The basemap is vector now,** drawn by MapLibre inside a Leaflet layer. Every overlay (lines, stations, trains, the location pin) is still Leaflet and unchanged. MapLibre loads as its own chunk after the map is up, so the main bundle and the glasses startup are no heavier than before.
+- **The map credits its data.** The old map hid Carto's credit, which its terms required. The credit is now plain text, "© OpenMapTiles © OpenStreetMap", in the gutter beneath the info button. These are the two credits the data licences require, and plain text means a tap cannot navigate the WebView away from the app.
+
+### Internal
+- The network whitelist swaps `a.basemaps.cartocdn.com` for `tiles.openfreemap.org`, the one origin the style, tiles, fonts and sprites come from.
+- MapLibre's informational URLs are stripped from the bundle for the whitelist scanner, like Vue's and Leaflet's. One is not informational: `maplibre.invalid` is a dummy base for `new URL()`, never requested, so it is repointed at the whitelisted origin rather than removed.
+- MapLibre 6 looks for its worker beside its own module file, which bundling breaks. Vite builds the worker as its own asset and `setWorkerUrl` points at it, and `maplibre-gl` is excluded from dev prebundling, which otherwise lost the worker and gave the Leaflet binding a second MapLibre instance.
+- `@mapbox/jsonlint-lines-primitives` is resolved to 2.0.2, because 2.0.3 declares Node 22 and refuses to install on Node 20.
+
 ## v0.7.1
 
 ### Glasses UI
