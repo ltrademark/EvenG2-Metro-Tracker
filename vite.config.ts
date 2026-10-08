@@ -12,13 +12,8 @@ function stripVendorUrls(): Plugin {
   const replacements: [RegExp, string][] = [
     [/https:\/\/vuejs\.org\/error-reference\/#/g, 'vuejs-error#'],
     [/https:\/\/leafletjs\.com/g, ''],
-    // MapLibre's own logo and credit links, which never render inside a Leaflet layer.
+    // MapLibre's own logo link, which never renders inside a Leaflet layer.
     [/https:\/\/maplibre\.org\//g, ''],
-    [/https:\/\/(wiki\.openstreetmap\.org)/g, '$1'],
-    // Not informational: a dummy base for `new URL()` when checking a link's
-    // protocol, never requested. Any absolute origin behaves the same, so use one
-    // that is already whitelisted.
-    [/https:\/\/maplibre\.invalid\//g, 'https://tiles.openfreemap.org/'],
   ]
   return {
     name: 'strip-vendor-urls',
@@ -28,6 +23,21 @@ function stripVendorUrls(): Plugin {
         if (file.type === 'chunk') {
           for (const [from, to] of replacements) file.code = file.code.replace(from, to)
         }
+      }
+    },
+  }
+}
+
+function forbidEval(): Plugin {
+  const forbidden = /(?<![\w$.])eval\s*\(|globalThis\.eval\b|new\s+Function\s*\(/
+  return {
+    name: 'forbid-eval',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const file of Object.values(bundle)) {
+        if (file.type !== 'chunk') continue
+        const hit = forbidden.exec(file.code)
+        if (hit) this.error(`${file.fileName} contains "${hit[0]}", which Even Hub review rejects`)
       }
     },
   }
@@ -91,14 +101,9 @@ function devDiagnosticsSink(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
-    plugins: [vue(), stripVendorUrls(), devDiagnosticsSink()],
+    plugins: [vue(), stripVendorUrls(), forbidEval(), devDiagnosticsSink()],
     define: {
       __WMATA_KEY__: JSON.stringify(env.WMATA_API_KEY ?? ''),
-    },
-    // Pre-bundling MapLibre loses its worker file and leaves the Leaflet binding
-    // holding a second copy, so setWorkerUrl lands on the wrong one.
-    optimizeDeps: {
-      exclude: ['maplibre-gl'],
     },
     build: {
       target: 'es2020',

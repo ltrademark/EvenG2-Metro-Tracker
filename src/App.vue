@@ -399,15 +399,10 @@ export default defineComponent({
       // Style, tiles, fonts and sprites all come from this one whitelisted origin.
       // MapLibre is most of the bundle, so it loads on its own after the overlays
       // and the glasses are already up; nothing else waits on the basemap.
-      // MapLibre 6 finds its worker beside its own module file, which bundling
-      // breaks; Vite builds the worker as its own asset and we point MapLibre at it.
       Promise.all([
         import('@maplibre/maplibre-gl-leaflet'),
-        import('maplibre-gl'),
-        import('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'),
         import('maplibre-gl/dist/maplibre-gl.css'),
-      ]).then(([{ maplibreGL }, { setWorkerUrl }, { default: workerUrl }]) => {
-        setWorkerUrl(workerUrl)
+      ]).then(([{ maplibreGL }]) => {
         maplibreGL({
           style: 'https://tiles.openfreemap.org/styles/positron',
           // The data licence requires the credit. Plain text replaces the style's
