@@ -9,10 +9,10 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Real-time DC Metro arrivals and live train positions from the official WMATA API, plus light map tiles from CartoDB.",
+      "desc": "Real-time DC Metro arrivals and live train positions from the official WMATA API, plus the light basemap from OpenFreeMap.",
       "whitelist": [
         "https://api.wmata.com",
-        "https://a.basemaps.cartocdn.com",
+        "https://tiles.openfreemap.org",
         "https://www.ltrademark.com",
         "https://github.com"
       ]

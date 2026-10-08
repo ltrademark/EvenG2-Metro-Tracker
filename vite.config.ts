@@ -12,6 +12,13 @@ function stripVendorUrls(): Plugin {
   const replacements: [RegExp, string][] = [
     [/https:\/\/vuejs\.org\/error-reference\/#/g, 'vuejs-error#'],
     [/https:\/\/leafletjs\.com/g, ''],
+    // MapLibre's own logo and credit links, which never render inside a Leaflet layer.
+    [/https:\/\/maplibre\.org\//g, ''],
+    [/https:\/\/(wiki\.openstreetmap\.org)/g, '$1'],
+    // Not informational: a dummy base for `new URL()` when checking a link's
+    // protocol, never requested. Any absolute origin behaves the same, so use one
+    // that is already whitelisted.
+    [/https:\/\/maplibre\.invalid\//g, 'https://tiles.openfreemap.org/'],
   ]
   return {
     name: 'strip-vendor-urls',
@@ -87,6 +94,11 @@ export default defineConfig(({ mode }) => {
     plugins: [vue(), stripVendorUrls(), devDiagnosticsSink()],
     define: {
       __WMATA_KEY__: JSON.stringify(env.WMATA_API_KEY ?? ''),
+    },
+    // Pre-bundling MapLibre loses its worker file and leaves the Leaflet binding
+    // holding a second copy, so setWorkerUrl lands on the wrong one.
+    optimizeDeps: {
+      exclude: ['maplibre-gl'],
     },
     build: {
       target: 'es2020',

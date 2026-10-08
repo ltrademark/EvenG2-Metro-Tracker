@@ -392,13 +392,30 @@ export default defineComponent({
 
     _initMap() {
       const el = this.$refs.mapEl as HTMLElement
-      const map = L.map(el, { zoomControl: false, attributionControl: false }).setView([38.9072, -77.0369], 11)
-      // Pinned to a single subdomain so the bundled tile URL matches an exact
-      // whitelist origin — the `{s}` template expands to an undeclared host and
-      // trips Even Hub's network-whitelist scanner.
-      L.tileLayer('https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-      }).addTo(map)
+      const map = L.map(el, { zoomControl: false, maxZoom: 19 }).setView([38.9072, -77.0369], 11)
+      // Carto's tiles started demanding an API key in August 2026. OpenFreeMap
+      // needs none and its Positron style is the same light basemap. It is vector,
+      // so MapLibre draws it inside a Leaflet layer and every overlay stays Leaflet.
+      // Style, tiles, fonts and sprites all come from this one whitelisted origin.
+      // MapLibre is most of the bundle, so it loads on its own after the overlays
+      // and the glasses are already up; nothing else waits on the basemap.
+      // MapLibre 6 finds its worker beside its own module file, which bundling
+      // breaks; Vite builds the worker as its own asset and we point MapLibre at it.
+      Promise.all([
+        import('@maplibre/maplibre-gl-leaflet'),
+        import('maplibre-gl'),
+        import('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'),
+        import('maplibre-gl/dist/maplibre-gl.css'),
+      ]).then(([{ maplibreGL }, { setWorkerUrl }, { default: workerUrl }]) => {
+        setWorkerUrl(workerUrl)
+        maplibreGL({
+          style: 'https://tiles.openfreemap.org/styles/positron',
+          // The data licence requires the credit. Plain text replaces the style's
+          // own, whose links would navigate the host WebView away from the app.
+          attributionControl: { customAttribution: '© OpenMapTiles © OpenStreetMap' },
+        }).addTo(map)
+      }).catch(err => console.warn('basemap failed to load:', err))
+      map.attributionControl.setPrefix(false).setPosition('bottomleft')
       // Route lines sit below the station dots (default overlay pane).
       map.createPane('lines')
       map.getPane('lines')!.style.zIndex = '350'
@@ -698,6 +715,17 @@ body,
 }
 .leaflet-container {
   background: var(--c-bg);
+}
+/* The basemap credit: required, but kept quiet. It sits in the corner, inside the
+   --sp-3 gutter beneath the info button, so it must stay exactly that tall. */
+.leaflet-control-attribution.leaflet-control {
+  margin: 0;
+  padding: 0 6px;
+  border-top-right-radius: 4px;
+  background: rgba(238, 238, 238, 0.7);
+  color: var(--c-text-fainter);
+  font-size: 9px;
+  line-height: var(--sp-3);
 }
 
 .info-btn {
